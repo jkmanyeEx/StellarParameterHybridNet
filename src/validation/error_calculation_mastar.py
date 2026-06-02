@@ -4,7 +4,7 @@ import torch
 from tqdm import tqdm
 
 from .eval_core_mastar import load_mastar_spectra
-from .xai_analyzer import extract_18d_features_live_eval
+from .xai_analyzer import extract_30d_features_live_eval
 from ..models.hybrid_net import StellarParameterHybridNet
 
 # ── 경로 ──────────────────────────────────────────────────────────────────────
@@ -38,20 +38,18 @@ if os.path.exists(_feature_stats_path):
 else:
     print("[mastar eval] WARNING: feature_stats.npy not found, using hardcoded fallback.")
     FEATURE_MEAN = np.array([
-        1.464409,  4.742932,  0.266495,
-        1.455140,  4.436723,  0.270130,
-        1.388086,  3.913455,  0.304693,
-        6.086025,  8.080866,  0.618852,
-        3.542716, 13.821565,  0.300151,
-        2.593579,  8.094519,  0.259293,
+        2.168124, 7.557751, 0.262975, 2.347122, 7.639357, 0.270184,
+        3792.6926, 6.315333, 916.74817, 24787.14, 7.6943, 5746.3926,
+        57894.89, 13.219859, 23364.115, 49927.203, 12.890424, 21554.318,
+        2.200694, 8.109497, 0.195792, 1.391210, 9.626699, 0.142387,
+        2542.1873, 3.208517, 560.62006, 2.048892, 7.622436, 0.205190
     ], dtype=np.float32)
     FEATURE_STD = np.array([
-        0.862422, 2.056033, 0.084388,
-        1.264955, 2.470768, 0.091035,
-        1.372020, 1.999545, 0.095620,
-        2.815774, 3.239444, 0.199310,
-        1.590929, 4.727457, 0.147723,
-        2.830290, 4.755941, 0.179381,
+        1.108715, 3.819997, 0.083094, 1.789646, 4.650632, 0.107463,
+        325363.9, 4.353704, 67839.76, 1051861.4, 4.765630, 249964.83,
+        1816901.2, 6.214286, 1473617.5, 1515983.6, 3.159087, 1685659.9,
+        3.245821, 5.176442, 0.168010, 0.947460, 3.302940, 0.101471,
+        290824.66, 2.565086, 46014.37, 2.838998, 4.929203, 0.155020
     ], dtype=np.float32)
 
 
@@ -63,7 +61,12 @@ def calculate_statistical_metrics(y_true, y_pred):
     r2 = 1.0 - (ss_res / (ss_tot + 1e-8))
 
     rel_teff = np.mean(np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)) * 100
-    rel_logg = np.mean(np.abs(y_true[:, 1] - y_pred[:, 1]) / (np.abs(y_true[:, 1]) + 1e-8)) * 100
+
+    logg_true, logg_pred = y_true[:, 1], y_pred[:, 1]
+    logg_safe = np.abs(logg_true) > 0.1
+    rel_logg = np.mean(np.abs(logg_true[logg_safe] - logg_pred[logg_safe]) / np.abs(logg_true[logg_safe])) * 100 \
+               if np.any(logg_safe) else 0.0
+
     feh_true, feh_pred = y_true[:, 2], y_pred[:, 2]
     safe = np.abs(feh_true) > 0.01
     rel_feh = np.mean(np.abs(feh_true[safe] - feh_pred[safe]) / np.abs(feh_true[safe])) * 100 \
@@ -104,7 +107,7 @@ def run_mastar_bulk_evaluation():
         f_std     = np.std(raw_flux) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
 
-        raw_feat  = extract_18d_features_live_eval(WAVE_GRID, raw_flux[0])
+        raw_feat  = extract_30d_features_live_eval(WAVE_GRID, raw_flux[0])
         norm_feat = (raw_feat - FEATURE_MEAN) / (FEATURE_STD + 1e-8)
 
         tensor_flux = torch.from_numpy(norm_flux).float().unsqueeze(1).to(device)

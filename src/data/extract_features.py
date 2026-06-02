@@ -14,7 +14,7 @@ def gaussian_profile(x, a, x0, sigma, c):
     return c - a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
 
 
-def extract_18d_features_single_star(wave, norm_flux):
+def extract_30d_features_single_star(wave, norm_flux):
     """
     10개 흡수선 x 3값 (EW, FWHM, depth) = 30D 피처 벡터 추출.
 
@@ -95,7 +95,7 @@ def extract_18d_features_single_star(wave, norm_flux):
 def _extract_worker(args):
     """multiprocessing.Pool에서 호출 가능하도록 모듈 최상위레벨에 정의."""
     wave, flux = args
-    return extract_18d_features_single_star(wave, flux)
+    return extract_30d_features_single_star(wave, flux)
 
 
 def main():

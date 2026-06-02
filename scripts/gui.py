@@ -18,7 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.models.hybrid_net import StellarParameterHybridNet
 from src.validation.eval_core import align_wavelength_resolution, continuum_normalize
-from src.validation.xai_analyzer import extract_18d_features_live_eval
+from src.validation.xai_analyzer import extract_30d_features_live_eval
 from src.validation.error_calculator import collect_spec_fits_files, load_spectra_from_fits_list
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -330,7 +330,7 @@ class StellarValidatorGUI:
         self.current_flux = raw_flux.reshape(1, -1)
         self.norm_flux    = np.clip((self.current_flux - f_mean) / f_std, -3.0, 3.0)
 
-        raw_feat  = extract_18d_features_live_eval(WAVE_GRID, raw_flux)
+        raw_feat  = extract_30d_features_live_eval(WAVE_GRID, raw_flux)
         norm_feat = (raw_feat - FEATURE_MEAN) / (FEATURE_STD + 1e-8)
         self.physical_features_30d = norm_feat.astype(np.float32)
 

@@ -7,20 +7,20 @@ Ground truth source : MaStar VAC v2 (TEFF_MED/LOGG_MED/FEH_NOAPP_MED)
 Label normalization : label_stats.npy (train split)
 
 ▶ T_eff  (K):
-   MAE            : 97.7359 K
-   RMSE           : 352.8707 K
-   Relative Error : 1.51%
-   R2 Score       : 0.9696
+   MAE            : 107.5246 K
+   RMSE           : 331.8063 K
+   Relative Error : 1.64%
+   R2 Score       : 0.9731
 
 ▶ log g  (dex):
-   MAE            : 0.1085 dex
-   RMSE           : 0.1650 dex
-   Relative Error : 3161588.82%
-   R2 Score       : 0.9742
+   MAE            : 0.1132 dex
+   RMSE           : 0.1713 dex
+   Relative Error : 4.65%
+   R2 Score       : 0.9721
 
 ▶ [Fe/H] (dex):
-   MAE            : 0.0708 dex
-   RMSE           : 0.1111 dex
-   Relative Error : 27.04%
-   R2 Score       : 0.9637
+   MAE            : 0.0767 dex
+   RMSE           : 0.1187 dex
+   Relative Error : 30.31%
+   R2 Score       : 0.9586
 

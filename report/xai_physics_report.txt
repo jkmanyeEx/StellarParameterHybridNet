@@ -6,33 +6,33 @@ Analyzed Samples: 1000 Real MaStar Spectra (Cumulative Jacobian Gradients)
 
 ▶ Element Feature Importance Metrics (Hypothesis 2):
    - H-alpha (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.002107
-     * Gravity Sensitivity     : 0.004647
+     * Temperature Sensitivity : 0.003080
+     * Gravity Sensitivity     : 0.005270
 
    - Mg-b Triplet (Magnesium):
-     * Temperature Sensitivity : 0.002625
-     * Gravity Sensitivity     : 0.009261
+     * Temperature Sensitivity : 0.003089
+     * Gravity Sensitivity     : 0.011196
 
    - Na-D Doublet (Sodium):
-     * Temperature Sensitivity : 0.002121
-     * Gravity Sensitivity     : 0.003286
+     * Temperature Sensitivity : 0.003003
+     * Gravity Sensitivity     : 0.002768
 
    - H-beta (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.002575
-     * Gravity Sensitivity     : 0.003862
+     * Temperature Sensitivity : 0.003225
+     * Gravity Sensitivity     : 0.005135
 
-Hypothesis 2 Proof Ratio: 1.1526
-Hypothesis 2 Proof Ratio (Ablated 18D Features): 1.3789
+Hypothesis 2 Proof Ratio: 1.1997
+Hypothesis 2 Proof Ratio (Ablated 30D Features): 1.1888
 
 ============================================================
 ▶ Global Weight Attribution Architecture (Hypothesis 1)
 ============================================================
-   - 18D Physical Feature Layer Contribution: 23.4252%
+   - 30D Physical Feature Layer Contribution: 20.4856%
 
 ============================================================
 ▶ Zero-Ablation Sensitivity Analysis
 ============================================================
 Mean output shift when physical features are artificially zeroed:
-   - T_eff  : 144.6525 K
-   - log g  : 0.1755 dex
-   - [Fe/H] : 0.1068 dex
+   - T_eff  : 132.2560 K
+   - log g  : 0.1422 dex
+   - [Fe/H] : 0.0995 dex

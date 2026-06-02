@@ -2,26 +2,26 @@
   SDSS DR17 Real Spec FITS — Evaluation Report
 ======================================================================
 
-Total valid STAR samples : 200
+Total valid STAR samples : 180
 Ground truth source      : SSPP CSV (*adop)
 Label normalization      : label_stats.npy (train split)
 
 ▶ [SECTION 1] Raw Performance (Cross-Domain):
    * T_eff  (K):
-     MAE            : 350.0602 K
-     RMSE           : 590.6074 K
-     Relative Error : 7.02%
-     R2 Score       : 0.1345
+     MAE            : 313.2925 K
+     RMSE           : 750.7668 K
+     Relative Error : 6.22%
+     R2 Score       : -0.3743
 
    * log g  (dex):
-     MAE            : 0.5401 dex
-     RMSE           : 0.6859 dex
-     Relative Error : 13.85%
-     R2 Score       : -2.9387
+     MAE            : 0.4821 dex
+     RMSE           : 0.5958 dex
+     Relative Error : 12.57%
+     R2 Score       : -1.9156
 
    * [Fe/H] (dex):
-     MAE            : 0.2624 dex
-     RMSE           : 0.3674 dex
-     Relative Error : 91.82%
-     R2 Score       : -0.1047
+     MAE            : 0.1935 dex
+     RMSE           : 0.2728 dex
+     Relative Error : 61.46%
+     R2 Score       : 0.3967
 

@@ -8,7 +8,7 @@ This project is a PyTorch-based Machine Learning pipeline for astrophysics. The 
 
 The architecture, **`StellarParameterHybridNet`**, fuses two data streams:
 1. **1D CNN Branch**: Extracts features from raw spectral flux (aligned to a standard linear wavelength grid of 4563 pixels from 3650.0 Å to 10250.0 Å).
-2. **Dense Branch**: Processes 18-dimensional extracted physical features (Equivalent Width, FWHM, and Depth for 6 key stellar absorption lines).
+2. **Dense Branch**: Processes 30-dimensional extracted physical features (Equivalent Width, FWHM, and Depth for 10 key stellar absorption lines).
 
 The model is trained using the **MaStar (MaNGA Stellar Library)** dataset from SDSS DR17 (6,085 spectra).
 
@@ -25,13 +25,13 @@ The codebase has been refactored into a modern, production-ready research struct
 All core Python sub-modules live here, structured as a package:
 *   **[`src/data/`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/)**: Handles loading and preprocessing.
     *   [`preprocess_flux.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/preprocess_flux.py): Applies pixel masking and continuum normalization.
-    *   [`extract_features.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_features.py): Fits Gaussian profiles to extract 18D absorption line features.
+    *   [`extract_features.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_features.py): Fits Gaussian profiles to extract 30D absorption line features.
     *   [`extract_labels.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_labels.py): Extracts catalog target values.
     *   [`dataset.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/dataset.py): PyTorch `Dataset` that slices, normalizes, and packages data.
 *   **[`src/models/`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/)**: Defines neural network layers.
     *   [`hybrid_net.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/hybrid_net.py): Combines all branch components.
     *   [`cnn_branch.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/cnn_branch.py): 1D CNN with Residual blocks (`ResBlock1D`).
-    *   [`dense_branch.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/dense_branch.py): Dense layer stream for 18D features.
+    *   [`dense_branch.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/dense_branch.py): Dense layer stream for 30D features.
     *   [`fusion.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/fusion.py): Merges latent layers.
     *   [`output_branch.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/output_branch.py): Computes `CrossModalAttention` gating and final parameter projection.
 *   **[`src/training/`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/training/)**:
@@ -42,7 +42,6 @@ All core Python sub-modules live here, structured as a package:
     *   [`xai_analyzer.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/xai_analyzer.py): Calculates cumulative Jacobian sensitivity metrics.
     *   [`eval_core_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/eval_core_mastar.py): Splits validation folds of the training set.
     *   [`error_calculation_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/error_calculation_mastar.py): Cross-validates metrics against MaStar targets.
-    *   [`xai_analyzer_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/xai_analyzer_mastar.py): Runs Jacobian sensitivity over MaStar data.
 *   **[`src/utils/`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/utils/)**:
     *   [`config.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/utils/config.py): Hyperparameters and hardware configuration.
     *   [`loss_opt.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/utils/loss_opt.py): Loss function and optimization wrappers.
@@ -53,7 +52,6 @@ Lightweight executable scripts mapping to package modules:
 *   [`evaluate.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/evaluate.py): Evaluates predictions on real spec FITS files.
 *   [`evaluate_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/evaluate_mastar.py): Runs cross-validation against MaStar validation dataset folds.
 *   [`xai_analysis.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/xai_analysis.py): Performs Jacobian analysis on real specs.
-*   [`xai_analysis_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/xai_analysis_mastar.py): Runs Jacobian analysis on MaStar dataset folds.
 *   [`gui.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/gui.py): GUI validator for SDSS spec FITS.
 *   [`gui_mastar.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/gui_mastar.py): GUI validator for MaStar validation sets.
 *   [`compare_domains.py`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/compare_domains.py): Compares flux normalization distributions.
@@ -74,7 +72,6 @@ Presents evaluation summaries for catalog comparisons:
 *   [`dataset_error_report.txt`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/dataset_error_report.txt)
 *   [`dataset_error_report_mastar.txt`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/dataset_error_report_mastar.txt)
 *   [`xai_physics_report.txt`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/xai_physics_report.txt)
-*   [`xai_physics_report_mastar.txt`](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/xai_physics_report_mastar.txt)
 
 ---
 

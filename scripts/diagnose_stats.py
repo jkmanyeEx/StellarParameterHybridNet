@@ -32,7 +32,7 @@ def main():
           f"{np.std(clean,axis=0)[1]:.6f}, {np.std(clean,axis=0)[2]:.6f}])")
 
     clean_feat = features[mask]
-    print("\n=== TRUE 18D FEATURE STATS ===")
+    print("\n=== TRUE 30D FEATURE STATS ===")
     print("FEATURE_MEAN =", np.array2string(np.mean(clean_feat, axis=0), precision=6, separator=', '))
     print("FEATURE_STD  =", np.array2string(np.std(clean_feat, axis=0) + 1e-8, precision=6, separator=', '))
 

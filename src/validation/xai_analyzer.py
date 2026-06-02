@@ -11,10 +11,10 @@ def gaussian_profile(x, a, x0, sigma, c):
     return c - a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
 
 
-def extract_18d_features_live_eval(wave, norm_flux):
+def extract_30d_features_live_eval(wave, norm_flux):
     """
-    Extract 18D physical feature vector from a single stellar spectrum.
-    6 absorption lines x 3 values each: equivalent width, FWHM, depth.
+    Extract 30D physical feature vector from a single stellar spectrum.
+    10 absorption lines x 3 values each: equivalent width, FWHM, depth.
     Falls back to [0, 0, 0] per line if Gaussian fit does not converge.
     """
     target_lines = {
@@ -83,13 +83,13 @@ FUSION_DIM = CNN_BRANCH_DIM + DENSE_BRANCH_DIM  # 1344
 def calculate_eval_model_weight_ratio(model):
     """
     Estimate what fraction of the first post-fusion layer's L1 weight magnitude
-    comes from the Dense (18D physical feature) branch vs the CNN branch.
+    comes from the Dense (30D physical feature) branch vs the CNN branch.
 
-    Concat order: [CNN: 320 dims | Dense branch: 128 dims] = 448 total.
-    We slice W[:, :320] for CNN and W[:, 320:] for the Dense branch.
+    Concat order: [CNN: 1216 dims | Dense branch: 128 dims] = 1344 total.
+    We slice W[:, :1216] for CNN and W[:, 1216:] for the Dense branch.
     """
     try:
-        # Target: the first Linear(448, *) layer — the post-fusion projection
+        # Target: the first Linear(1344, *) layer — the post-fusion projection
         target_weight_tensor = None
         for name, param in model.named_parameters():
             if ("weight" in name.lower()
@@ -191,8 +191,8 @@ def run_xai_line_profile_analysis(num_samples=1000):
         f_std  = np.std(raw_flux) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0).reshape(1, -1)
 
-        features_18d = extract_18d_features_live_eval(wave_grid, raw_flux)
-        feat_tensor  = torch.from_numpy(features_18d).float().unsqueeze(0).to(device)
+        features_30d = extract_30d_features_live_eval(wave_grid, raw_flux)
+        feat_tensor  = torch.from_numpy(features_30d).float().unsqueeze(0).to(device)
         zero_feat    = torch.zeros_like(feat_tensor)
         norm_flux_t  = torch.from_numpy(norm_flux).float()
 
@@ -261,14 +261,14 @@ def run_xai_line_profile_analysis(num_samples=1000):
     h_alpha_impact_ablated = float(np.mean(mean_jacobian_ablated[0, h_alpha_mask]))
     verification_ratio_ablated = h_alpha_impact_ablated / (bg_impact_ablated + 1e-8)
 
-    final_18d_weight_ratio = calculate_eval_model_weight_ratio(model)
+    final_30d_weight_ratio = calculate_eval_model_weight_ratio(model)
 
     print(f"\n[Hypothesis 2] H-alpha region impact is {verification_ratio:.4f}x "
           f"higher than continuum background.")
-    print(f"[Hypothesis 2 - Ablated] When 18D features are removed, H-alpha region impact grows to {verification_ratio_ablated:.4f}x "
+    print(f"[Hypothesis 2 - Ablated] When 30D features are removed, H-alpha region impact grows to {verification_ratio_ablated:.4f}x "
           f"higher than continuum background.")
-    print(f"[Hypothesis 1] 18D Physical Features claim "
-          f"{final_18d_weight_ratio:.2f}% of dense layer attention.")
+    print(f"[Hypothesis 1] 30D Physical Features claim "
+          f"{final_30d_weight_ratio:.2f}% of dense layer attention.")
 
     print("\n" + "=" * 65)
     print("▶ Feature Branch Ablation Impact (Absolute Mean Shift)")
@@ -293,12 +293,12 @@ def run_xai_line_profile_analysis(num_samples=1000):
             f.write(f"     * Temperature Sensitivity : {t_imp:.6f}\n")
             f.write(f"     * Gravity Sensitivity     : {g_imp:.6f}\n\n")
         f.write(f"Hypothesis 2 Proof Ratio: {verification_ratio:.4f}\n")
-        f.write(f"Hypothesis 2 Proof Ratio (Ablated 18D Features): {verification_ratio_ablated:.4f}\n\n")
+        f.write(f"Hypothesis 2 Proof Ratio (Ablated 30D Features): {verification_ratio_ablated:.4f}\n\n")
         f.write("============================================================\n")
         f.write("▶ Global Weight Attribution Architecture (Hypothesis 1)\n")
         f.write("============================================================\n")
-        f.write(f"   - 18D Physical Feature Layer Contribution: "
-                f"{final_18d_weight_ratio:.4f}%\n\n")
+        f.write(f"   - 30D Physical Feature Layer Contribution: "
+                f"{final_30d_weight_ratio:.4f}%\n\n")
         f.write("============================================================\n")
         f.write("▶ Zero-Ablation Sensitivity Analysis\n")
         f.write("============================================================\n")
