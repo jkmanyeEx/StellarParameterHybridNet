@@ -1,0 +1,12 @@
+1. preprocess
+    - read_and_normalize_data
+    - remove_telluric (ignore)
+    - extract_feature
+
+2. dataloader (don't have to run by yourself)
+
+3. architecture
+
+4. training
+
+5. validation

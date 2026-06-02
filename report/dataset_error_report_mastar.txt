@@ -1,0 +1,26 @@
+=================================================================
+  MaStar Dataset Cross Validation - Evaluation Report
+=================================================================
+
+Total valid samples : 12834
+Ground truth source : MaStar Catalog
+Label normalization : true training stats (6085 MaStar samples)
+
+▶ T_eff  (K):
+   MAE            : 995.1370 K
+   RMSE           : 1613.0377 K
+   Relative Error : 15.45%
+   R2 Score       : 0.4193
+
+▶ log g  (dex):
+   MAE            : 0.5245 dex
+   RMSE           : 0.6420 dex
+   Relative Error : 19197905.53%
+   R2 Score       : 0.6174
+
+▶ [Fe/H] (dex):
+   MAE            : 0.6191 dex
+   RMSE           : 0.7030 dex
+   Relative Error : 202.78%
+   R2 Score       : -0.4730
+

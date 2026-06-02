@@ -1,0 +1,38 @@
+============================================================
+      SDSS DR17 Stellar HybridNet XAI Physics Report        
+============================================================
+
+Analyzed Samples: 1000 Real MaStar Spectra (Cumulative Jacobian Gradients)
+
+▶ Element Feature Importance Metrics (Hypothesis 2):
+   - H-alpha (Hydrogen Balmer):
+     * Temperature Sensitivity : 0.001559
+     * Gravity Sensitivity     : 0.004855
+
+   - Mg-b Triplet (Magnesium):
+     * Temperature Sensitivity : 0.003320
+     * Gravity Sensitivity     : 0.013839
+
+   - Na-D Doublet (Sodium):
+     * Temperature Sensitivity : 0.001581
+     * Gravity Sensitivity     : 0.003840
+
+   - H-beta (Hydrogen Balmer):
+     * Temperature Sensitivity : 0.003109
+     * Gravity Sensitivity     : 0.009633
+
+Hypothesis 2 Proof Ratio: 0.8339
+Hypothesis 2 Proof Ratio (Ablated 18D Features): 1.0290
+
+============================================================
+▶ Global Weight Attribution Architecture (Hypothesis 1)
+============================================================
+   - 18D Physical Feature Layer Contribution: 35.1994%
+
+============================================================
+▶ Zero-Ablation Sensitivity Analysis
+============================================================
+Mean output shift when physical features are artificially zeroed:
+   - T_eff  : 219.1407 K
+   - log g  : 0.2505 dex
+   - [Fe/H] : 0.2560 dex
