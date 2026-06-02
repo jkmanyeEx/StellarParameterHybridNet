@@ -142,12 +142,6 @@ def run_xai_line_profile_analysis(num_samples=1000):
     else:
         print(f"   [WARN] Weights not found — running with random init.")
     model.eval()
-    # 커널 컴파일로 추론 속도 향상 (PyTorch 2.0+)
-    try:
-        model = torch.compile(model)
-        print("   [Compile] torch.compile applied.")
-    except Exception:
-        pass  # PyTorch 2.0 이하이면 무시
 
     # --- Load real MaStar spectra ---
     data_flux_path = os.path.join(base_dir, "data", "processed", "X_flux_telluric.npy")

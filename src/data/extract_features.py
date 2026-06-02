@@ -99,7 +99,8 @@ def _extract_worker(args):
 
 
 def main():
-    from multiprocessing import cpu_count
+    from multiprocessing import Pool, cpu_count
+    from tqdm import tqdm
 
     print("Loading exported data...")
     base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -121,11 +122,12 @@ def main():
 
     args = [(standard_wave, X_flux_telluric[i]) for i in range(total_stars)]
 
-    from multiprocessing import Pool
     with Pool(processes=CPU_WORKERS_PREPROCESS) as pool:
-        X_features_list = list(pool.imap(
-            _extract_worker, args,
-            chunksize=500
+        X_features_list = list(tqdm(
+            pool.imap(_extract_worker, args, chunksize=500),
+            total=total_stars,
+            desc="30D Feature Extraction",
+            unit="star"
         ))
 
     X_features = np.array(X_features_list, dtype=np.float32)

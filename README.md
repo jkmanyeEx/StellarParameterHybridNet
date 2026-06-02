@@ -2,259 +2,305 @@
 
 ### Fusing 1D Convolutional Networks with Parametric Physical Line Profiles for Stellar Parameter Estimation
 
-A PyTorch-based machine learning pipeline designed to estimate fundamental stellar parameters—**Effective Temperature ($T_{\text{eff}}$)**, **Surface Gravity ($\log g$)**, and **Metallicity ($[\text{Fe}/\text{H}]$)**—directly from stellar spectra. The core architecture, `StellarParameterHybridNet`, implements a dual-stream knowledge fusion paradigm: combining a deep **1D CNN branch** for raw spectral flux feature extraction and a **Dense branch** that models 18-dimensional parametric physical line profiles (Equivalent Width, FWHM, and depth of 6 key absorption lines).
+A PyTorch-based machine learning pipeline for estimating fundamental stellar parameters — **Effective Temperature ($T_{\text{eff}}$)**, **Surface Gravity ($\log g$)**, and **Metallicity ($[\text{Fe}/\text{H}]$)** — directly from optical stellar spectra.
 
-The pipeline is trained on the **SDSS DR17 MaStar (MaNGA Stellar Library)** and validated using real-world **SDSS DR17 / APOGEE** spectrograph data. It incorporates an explainable AI (XAI) framework based on cumulative Jacobian gradients to verify physical alignment against established stellar physics.
+The core architecture, `StellarParameterHybridNet`, implements a dual-stream knowledge fusion paradigm: a deep **1D CNN branch** for raw spectral flux feature extraction fused with a **Dense branch** that models **30-dimensional parametric physical line profiles** (Equivalent Width, FWHM, and depth across 10 key absorption lines). Trained on **~71,000 spectra** from SDSS DR17 MaStar (goodspec + combspec), with labels sourced from the **MaStar Stellar Parameter VAC v2** for uniform quality.
+
+An explainable AI (XAI) framework based on cumulative Jacobian gradients and zero-ablation sensitivity analysis verifies physical alignment against established stellar physics.
 
 ---
 
-## Repository Overview
+## Dataset Download
 
-The repository is structured into modular components:
+All raw FITS files must be placed in `data/raw/` before running the pipeline. Large files are excluded from git (see `.gitignore`).
 
-* 📂 **[src/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/)**: Core library package.
-  * **[data/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/)**: Modules for data preprocessing and PyTorch datasets.
-    * [preprocess_flux.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/preprocess_flux.py): Reads raw spectra, applies pixel masking, and computes continuum normalization via a 201-pixel median filter.
-    * [extract_features.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_features.py): Fits Gaussian profiles to 6 critical absorption lines to generate 18D physical feature vectors.
-    * [extract_labels.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_labels.py): Extracts catalog target values ($T_{\text{eff}}$, $\log g$, $[\text{Fe}/\text{H}]$) and aligns them to the spectrum sequence.
-    * [dataset.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/dataset.py): PyTorch `Dataset` with sample filtering, z-score normalization, and data loading wrappers.
-  * **[models/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/)**: Modular PyTorch model components.
-    * [hybrid_net.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/hybrid_net.py): Main [StellarParameterHybridNet](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/hybrid_net.py) network model.
-    * [cnn_branch.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/cnn_branch.py): 1D CNN with Residual blocks (`ResBlock1D`) and Adaptive Average Pooling for raw flux analysis.
-    * [dense_branch.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/dense_branch.py): MLP layers that embed the 18D physical feature vector.
-    * [fusion.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/fusion.py): Concatenates feature maps from both streams.
-    * [output_branch.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/output_branch.py): Computes `CrossModalAttention` gating and final parameter projection.
-  * **[validation/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/)**: Validation core logic.
-    * [eval_core.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/eval_core.py): Continuum-normalizes and aligns raw external spectra to match training domain distribution.
-    * [error_calculator.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/error_calculator.py): Evaluates uncalibrated and calibrated predictions on real specs.
-    * [xai_analyzer.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/xai_analyzer.py): Computes cumulative Jacobian sensitivity matrices ($\partial \log g / \partial \lambda$) over target spectral bands.
-    * [error_calculation_mastar.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/error_calculation_mastar.py): Computes validation cross-validation error metrics on MaStar.
-* 📂 **[scripts/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/)**: Executable entry points for training, validation, and interpretability.
-  * [train.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/train.py): Main model training workflow CLI.
-  * [evaluate.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/evaluate.py): Bulk validator on real spec FITS catalog datasets.
-  * [xai_analysis.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/xai_analysis.py): Computes Jacobian interpretability curves.
-  * [gui.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/scripts/gui.py): Interactive visualization dashboard using Tkinter and Matplotlib.
-* 📂 **[report/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/)**: Telemetry records and scientific outputs.
-  * [dataset_error_report.txt](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/dataset_error_report.txt): Performance metrics on SDSS validation datasets.
-  * [xai_physics_report.txt](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/xai_physics_report.txt): Element sensitivity evaluations and proof ratios.
+### Training Data (MaStar DR17)
 
-## Pipeline Workflow & Script Execution Order
+Download from the [SDSS DR17 Science Archive Server](https://data.sdss.org/sas/dr17/manga/spectro/mastar/v3_1_1/v1_7_7/):
 
-To run the full astronomical training and validation pipeline, execute the modules and entry points in the following order:
+| File | Size | Description | URL |
+|------|------|-------------|-----|
+| `mastar-goodspec-v3_1_1-v1_7_7.fits.gz` | ~5 GB | Per-visit spectra (59k visits) | [download](https://data.sdss.org/sas/dr17/manga/spectro/mastar/v3_1_1/v1_7_7/mastar-goodspec-v3_1_1-v1_7_7.fits.gz) |
+| `mastar-combspec-v3_1_1-v1_7_7-lsfpercent60.0.fits.gz` | ~496 MB | Per-star combined spectra (12k stars) | [download](https://data.sdss.org/sas/dr17/manga/spectro/mastar/v3_1_1/v1_7_7/mastar-combspec-v3_1_1-v1_7_7-lsfpercent60.0.fits.gz) |
 
-### 1. Data Retrieval (Optional)
-Downloads real spectrograph test FITS files matching plate/mjd coordinates from SDSS SkyServer metadata catalog:
-```bash
-python scripts/download_spec.py
+### Label Data (MaStar VAC v2)
+
+Download from the [MaStar Stellar Parameter VAC directory](https://data.sdss.org/sas/dr17/manga/spectro/mastar/v3_1_1/v1_7_7/vac/parameters/):
+
+| File | Size | Description | URL |
+|------|------|-------------|-----|
+| `mastar-goodstars-v3_1_1-v1_7_7-params-v2.fits` | ~7.5 MB | Per-star median Teff/logg/[Fe/H] (4-method median, APOGEE-calibrated) | [download](https://data.sdss.org/sas/dr17/manga/spectro/mastar/v3_1_1/v1_7_7/vac/parameters/mastar-goodstars-v3_1_1-v1_7_7-params-v2.fits) |
+
+### Validation Data (SDSS SEGUE)
+
+The SDSS validation spectra are downloaded automatically by `scripts/download_spec.py` using the included SkyServer CSV catalog. No manual download needed.
+
+> **Tip — moving files to another machine:** Only the 3 raw FITS files above are needed to reproduce everything from scratch. All `.npy` processed files and `.pth` weights are generated by the pipeline and are excluded from git.
+>
+> ```bash
+> rsync -avz --progress data/raw/ user@mac-mini:~/path/to/project/data/raw/
+> ```
+
+---
+
+## Repository Structure
+
 ```
-* **Input**: `data/validation_dataset/Skyserver_SQL6_1_2026 10_51_26 PM.csv`
-* **Output**: Individual FITS files saved to `data/validation_dataset/`
+TermProject/
+├── src/
+│   ├── data/
+│   │   ├── preprocess_flux.py       # Continuum normalization + spike interpolation
+│   │   ├── extract_features.py      # 30D physical feature extraction (10 lines)
+│   │   ├── extract_labels.py        # VAC v2 label alignment (FEH_NOAPP_MED)
+│   │   └── dataset.py               # PyTorch Dataset (split-then-normalize)
+│   ├── models/
+│   │   ├── hybrid_net.py            # StellarParameterHybridNet (top-level)
+│   │   ├── cnn_branch.py            # 1D ResNet CNN → AdaptiveAvgPool1d(19) → 1216D
+│   │   ├── dense_branch.py          # MLP: 30D → 128D
+│   │   ├── fusion.py                # concat([1216D, 128D]) → 1344D
+│   │   └── output_branch.py         # LayerNorm → CrossModalAttention → Linear(3)
+│   ├── training/
+│   │   └── engine.py                # Training loop (best-checkpoint, resume, LR scheduler)
+│   ├── validation/
+│   │   ├── eval_core.py             # SDSS spec preprocessing (ivar masking, resolution match)
+│   │   ├── eval_core_mastar.py      # MaStar val-fold loader
+│   │   ├── error_calculator.py      # SDSS cross-domain evaluation
+│   │   ├── error_calculation_mastar.py  # MaStar in-domain evaluation
+│   │   └── xai_analyzer.py          # Jacobian XAI + zero-ablation analysis
+│   └── utils/
+│       ├── config.py                # Hardware detection (CPU/GPU/batch auto-config)
+│       └── loss_opt.py              # Loss and optimizer wrappers
+├── scripts/
+│   ├── train.py                     # python scripts/train.py [--resume]
+│   ├── evaluate.py                  # SDSS cross-domain evaluation
+│   ├── evaluate_mastar.py           # MaStar in-domain cross-validation
+│   ├── xai_analysis.py              # XAI on SDSS spectra
+│   ├── xai_analysis_mastar.py       # XAI on MaStar spectra
+│   ├── download_spec.py             # SDSS validation FITS downloader
+│   ├── gui.py                       # SDSS interactive viewer (Jacobian toggle)
+│   ├── gui_mastar.py                # MaStar interactive viewer (Jacobian toggle)
+│   ├── compare_domains.py           # Flux domain comparison diagnostic
+│   ├── diagnose_stats.py            # Dataset statistics diagnostic
+│   └── spec_analyzer.py             # FITS HDU inspector
+├── data/
+│   ├── raw/                         # Raw FITS files (git-ignored, download separately)
+│   ├── processed/                   # Generated .npy matrices (git-ignored)
+│   └── validation_dataset/          # SDSS spec FITS + SkyServer CSV
+├── weights/                         # Model checkpoints (git-ignored)
+├── report/                          # Evaluation reports and XAI summaries
+├── scratch/                         # Development notebooks
+└── .gitignore
+```
 
-### 2. Flux Continuum Normalization
-Processes raw MaStar spectra, extracts standard wavelengths, filters telluric/pixel noise, and normalizes fluxes with a 201-pixel median filter:
+---
+
+## Pipeline Execution
+
+### Prerequisites
+
+```bash
+pip install torch numpy astropy scipy matplotlib tqdm psutil
+```
+
+### Step 1 — Flux Continuum Normalization
+
+Reads goodspec + combspec, applies pixel masking, 201-pixel median-filter continuum normalization, 5σ spike removal via linear interpolation, and deduplicates combspec against goodspec by MANGAID.
+
 ```bash
 python src/data/preprocess_flux.py
 ```
-* **Input**: Raw FITS catalog in `data/raw/`
-* **Output**: Processed numpy matrices (`X_flux_clean.npy`, `star_ids.npy`, `standard_wave.npy`) in `data/processed/`
 
-### 3. Absorption Line Physical Profiling
-Extracts 18D physical parameters by fitting Gaussian profiles to 6 hydrogen and metal absorption lines:
+- **Input**: `data/raw/mastar-goodspec-v3_1_1-v1_7_7.fits`, `mastar-combspec-*.fits`
+- **Output**: `data/processed/X_flux_clean.npy`, `star_ids.npy`, `standard_wave.npy`
+
+### Step 2 — 30D Physical Feature Extraction
+
+Fits Gaussian profiles to 10 absorption lines per spectrum (falling back to non-parametric measurements on fit failure). Parallelized across all available CPU cores with progress tracking.
+
 ```bash
 python src/data/extract_features.py
 ```
-* **Input**: `data/processed/X_flux_clean.npy`
-* **Output**: Physical feature matrix (`X_features_physical.npy`) in `data/processed/`
 
-### 4. Training Label Sequencing
-Parses training target stellar parameters ($T_{\text{eff}}$, $\log g$, $[\text{Fe}/\text{H}]$) and aligns them matching the spectrum array indexes:
+- **Input**: `data/processed/X_flux_telluric.npy`
+- **Output**: `data/processed/X_features_physical.npy`  — shape `(N, 30)`
+
+### Step 3 — Label Alignment
+
+Aligns VAC v2 labels (`TEFF_MED`, `LOGG_MED`, `FEH_NOAPP_MED`) to the flux array order using MANGAID lookup. Uses non-APOGEE-calibrated [Fe/H] to match the SSPP validation scale.
+
 ```bash
 python src/data/extract_labels.py
 ```
-* **Input**: Metadata catalog in `data/raw/`
-* **Output**: Target parameter label matrix (`Y_labels.npy`) in `data/processed/`
 
-### 5. Neural Network Training
-Triggers the dual-stream optimization run, normalizes label scaling to avoid mean collapse, and exports final weights and loss plots:
+- **Input**: `data/raw/mastar-goodstars-v3_1_1-v1_7_7-params-v2.fits`, `data/processed/star_ids.npy`
+- **Output**: `data/processed/Y_labels.npy`
+
+### Step 4 — Training
+
+Splits by index first (leakage-free), fits normalization stats on train split only, then trains for 80 epochs with best-val-loss checkpointing. Batch size and DataLoader worker count are auto-configured based on detected hardware.
+
 ```bash
+# Fresh training
 python scripts/train.py
+
+# Resume from best checkpoint
+python scripts/train.py --resume
 ```
-* **Input**: Processed matrices in `data/processed/`
-* **Output**: Weights checkpoint and convergence plot in `weights/`
 
-### 6. Validation & Metric Calibrations
-Computes uncalibrated bulk MAE/RMSE/$R^2$ scores and fits linear regressions mapping outputs back to physical domains:
-* To evaluate against real SDSS spec FITS:
-  ```bash
-  python scripts/evaluate.py
-  ```
-* To run cross-validation against MaStar validation folds:
-  ```bash
-  python scripts/evaluate_mastar.py
-  ```
-* **Output**: Performance reports written to `report/`
+- **Input**: `data/processed/*.npy`
+- **Output**: `weights/stellar_hybrid_model.pth`, `data/processed/label_stats.npy`, `data/processed/feature_stats.npy`
 
-### 7. Explainable AI Sensitivity Mapping
-Runs backpropagation to output cumulative Jacobian gradients ($\partial \log g / \partial \lambda$) across critical spectral regions:
-* For real SDSS specs:
-  ```bash
-  python scripts/xai_analysis.py
-  ```
-* For MaStar folds:
-  ```bash
-  python scripts/xai_analysis_mastar.py
-  ```
-* **Output**: Sensitivity reports written to `report/`
+### Step 5 — Validation
 
-### 8. Interactive Telemetry UI Dashboard
-Launches a Tkinter-based user interface to interactively browse stellar records, plot continuum-normalized spectra, examine predictions, and visualize live Jacobian sensitivity gradients mapping absorption bands:
-* To inspect SDSS spec FITS files:
-  ```bash
-  python scripts/gui.py
-  ```
-* To inspect MaStar validation samples:
-  ```bash
-  python scripts/gui_mastar.py
-  ```
+```bash
+# Cross-domain (SDSS SEGUE spectra — download first if needed)
+python scripts/download_spec.py      # populate data/validation_dataset/
+python scripts/evaluate.py
+
+# In-domain (MaStar held-out val split)
+python scripts/evaluate_mastar.py
+```
+
+- **Output**: `report/dataset_error_report.txt`, `report/dataset_error_report_mastar.txt`
+
+### Step 6 — XAI Sensitivity Analysis
+
+Computes cumulative Jacobian gradients $\partial \theta / \partial \lambda$ over 1,000 MaStar spectra. Also runs zero-ablation analysis (30D features zeroed) to quantify the dense branch contribution.
+
+```bash
+python scripts/xai_analysis.py         # SDSS spectra
+python scripts/xai_analysis_mastar.py  # MaStar spectra
+```
+
+- **Output**: `report/xai_physics_report.txt`
+
+### Step 7 — Interactive GUI
+
+Launches a Tkinter dashboard with live Jacobian visualization. The **Toggle** button switches between normal and ablated (30D zeroed) Jacobian in real time. All 10 absorption lines are highlighted in the spectrum and XAI plots.
+
+```bash
+python scripts/gui.py           # SDSS viewer
+python scripts/gui_mastar.py    # MaStar viewer
+```
 
 ---
-
 
 ## Model Architecture
 
-`StellarParameterHybridNet` fuses data-driven representation learning with domain-specific stellar astrophysics knowledge.
-
 ```mermaid
 graph TD
-    %% Input Layer
-    InFlux[Raw 1D Flux Spectrum <br> 4563 Pixels] --> CNNBranch[1D CNN Branch]
-    InFeat[18D Physical Feature Vector <br> EW, FWHM, Depth of 6 Lines] --> DenseBranch[Dense Branch]
-    
-    %% CNN Branch Detail
-    subgraph 1D CNN Stream
-        CNNBranch --> Conv1[Conv1D + ReLU + MaxPool1d]
-        Conv1 --> Res1[ResBlock1D x32]
-        Res1 --> Conv2[Conv1D + ReLU + MaxPool1d]
-        Conv2 --> Res2[ResBlock1D x64]
-        Res2 --> AvgPool[AdaptiveAvgPool1d]
-        AvgPool --> Flat[Flatten <br> 320D Latent Vector]
+    InFlux["Raw 1D Flux Spectrum (4563px)"] --> CNN[1D CNN Branch]
+    InFeat["30D Physical Feature Vector\n(EW, FWHM, Depth × 10 lines)"] --> Dense[Dense Branch]
+
+    subgraph CNN Stream
+        CNN --> C1[Conv1D s=2 + ReLU + MaxPool]
+        C1  --> R1[ResBlock1D ×32ch]
+        R1  --> C2[Conv1D s=2 + ReLU + MaxPool]
+        C2  --> R2[ResBlock1D ×64ch]
+        R2  --> AP[AdaptiveAvgPool1d-19]
+        AP  --> FL[Flatten → 1216D]
     end
-    
-    %% Feature Branch Detail
-    subgraph Physical Feature Stream
-        DenseBranch --> FC1[Linear + LayerNorm + GELU]
-        FC1 --> FC2[Linear + LayerNorm + GELU]
-        FC2 --> FC3[Linear + LayerNorm + GELU <br> 128D Latent Vector]
+
+    subgraph Dense Stream
+        Dense --> D1[Linear 30→128 + LayerNorm + GELU]
+        D1    --> D2[Linear 128→128 + LayerNorm + GELU]
+        D2    --> D3[Linear 128→128 + LayerNorm + GELU → 128D]
     end
-    
-    %% Knowledge Fusion & Attention
-    Flat --> Concat[Knowledge Fusion Concatenation <br> 448D Latent Vector]
-    FC3 --> Concat
-    
-    subgraph Output Network
-        Concat --> LN1[LayerNorm]
-        LN1 --> CMA[Cross-Modal Attention Gating]
-        CMA --> MLP[Linear + LayerNorm + GELU]
-        MLP --> OutProj[Linear Projection]
+
+    FL  --> Fuse[Concat → 1344D]
+    D3  --> Fuse
+
+    subgraph Output Head
+        Fuse --> LN[LayerNorm 1344]
+        LN   --> CMA[CrossModalAttention SE-gate]
+        CMA  --> P1[Linear 1344→256 + LayerNorm + GELU + Dropout 0.2]
+        P1   --> Out[Linear 256→3]
     end
-    
-    %% Predictions
-    OutProj --> Predictions[Estimated Parameters <br> T_eff, log g, Fe/H]
+
+    Out --> Pred["T_eff (K) · log g (dex) · [Fe/H] (dex)"]
 ```
 
-### Dual-Stream Composition
-1. **CNN Stream**: Learns abstract features from the continuum-normalized spectrum. Uses a deep convolutional framework featuring 1D residual blocks (`ResBlock1D`) to capture localized absorption profiles.
-2. **Physical Feature Stream**: Focuses on 18-dimensional features extracted using parametric Gaussian profile fits:
-   $$\text{Profile}(\lambda) = c - a \exp\left(-\frac{(\lambda - \lambda_0)^2}{2\sigma^2}\right)$$
-   For six crucial stellar diagnostic lines:
-   * **$\text{H}\alpha$** ($\lambda = 6563.0\text{ \AA}$) — Temp & gravity indicator
-   * **$\text{H}\beta$** ($\lambda = 4861.0\text{ \AA}$) — Temperature indicator
-   * **$\text{H}\gamma$** ($\lambda = 4340.0\text{ \AA}$) — Temperature indicator
-   * **$\text{Ca II K}$** ($\lambda = 3934.0\text{ \AA}$) — Metallicity & temp indicator
-   * **$\text{Fe I}$** ($\lambda = 5270.0\text{ \AA}$) — Metallicity indicator
-   * **$\text{Na I}$** ($\lambda = 5892.0\text{ \AA}$) — Gravity & metallicity indicator
-   
-   For each line, the model accepts the extracted **Equivalent Width (EW)**, **Full Width at Half Maximum (FWHM)**, and **absorption depth ($a$)**.
-3. **Cross-Modal Attention (CMA)**: Fuses the output of both streams through a gating mechanism. It computes a channel-wise attention weight matrix that dynamically balances raw features and parametric parameters:
-   $$\text{Attention}(X) = X \odot \sigma(\text{Linear}(\text{GELU}(\text{Linear}(X))))$$
+### 30D Physical Feature Lines
+
+| Group | Line | Wavelength | Window | Sensitivity |
+|-------|------|-----------|--------|-------------|
+| Balmer | H-alpha | 6563 Å | ±20 Å | T_eff, log g |
+| Balmer | H-beta  | 4861 Å | ±20 Å | T_eff |
+| Balmer | H-gamma | 4340 Å | ±20 Å | T_eff |
+| Balmer | H-delta | 4102 Å | ±20 Å | T_eff |
+| Calcium | Ca II K | 3934 Å | ±15 Å | [Fe/H], T_eff |
+| Calcium | Ca II H | 3968 Å | ±15 Å | log g |
+| Magnesium | Mg I b | 5175 Å | ±20 Å | **log g** (XAI #1) |
+| Iron | Fe I 5270 | 5270 Å | ±15 Å | [Fe/H] |
+| Iron | Fe I 4383 | 4383 Å | ±15 Å | [Fe/H] |
+| Sodium | Na I D | 5892 Å | ±15 Å | log g, [Fe/H] |
+
+Each line contributes 3 values: **EW** (equivalent width), **FWHM**, and **depth** → 10 × 3 = **30D**.
+
+### CrossModalAttention
+
+A Squeeze-Excite self-gating mechanism applied to the fused 1344D vector:
+
+$$\text{Attention}(X) = X \odot \sigma\!\left(\text{Linear}\!\left(\text{GELU}\!\left(\text{Linear}(X)\right)\right)\right)$$
 
 ---
 
-## Scientific Highlights & Pipeline Fixes
+## Hardware Auto-Configuration
 
-During development and testing, two critical scientific observations guided the refinement of the model pipeline:
+`src/utils/config.py` detects hardware at startup and sets optimal parameters automatically:
 
-### 1. Mitigation of "Mean Collapse"
-* **Phenomenon**: Early training iterations exhibited a "mean collapse" where passing random Gaussian noise ($\mathcal{N}(0, 1)$) to the model produced fixed, near-average predictions: $T_{\text{eff}} \approx 5342\text{ K}$, $\log g \approx 4.11\text{ dex}$, and $[\text{Fe}/\text{H}] \approx -0.12\text{ dex}$.
-* **Root Cause**: The raw magnitude of $T_{\text{eff}}$ (thousands of Kelvin) dominated the MSE loss function, leading the gradient optimizer to implement a "shortcut": minimizing overall loss by predicting the statistical mean of the training dataset.
-* **Solution**: Integrated min-max scaling of targets during training in [extract_labels.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_labels.py), followed by dynamic denormalization of predictions using `label_stats.npy` in [error_calculator.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/error_calculator.py).
+| Setting | M2 Pro (12C / 32GB) | M4 (10C / 16GB) |
+|---------|---------------------|-----------------|
+| `CPU_WORKERS_PREPROCESS` | 11 | 9 |
+| `CPU_WORKERS_DATALOADER` | 6 | 5 |
+| `BATCH_SIZE` | 256 (auto) | 128 (auto) |
 
-### 2. Validation Domain Alignment
-* **Phenomenon**: Initial out-of-distribution evaluation of real SDSS DR17 spectra resulted in high errors and negative $R^2$ scores.
-* **Root Cause**: The model was trained on continuum-normalized fluxes oscillating around $1.0$. Evaluating raw spectrograph FITS files directly introduced huge out-of-distribution scales.
-* **Solution**: Added a pipeline step in [eval_core.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/eval_core.py) that mirrors the training continuum normalization: applying a 201-pixel median filter, dividing the raw spectrum by this background, and resampling the result onto a standardized linear wavelength grid (3650.0 Å to 10250.0 Å) with Gaussian resolution matching.
+Requires `psutil` for memory detection (`pip install psutil`). Falls back to 128 if unavailable.
 
 ---
 
-## Model Evaluation & Telemetry
+## Key Engineering Decisions
 
-The model is evaluated against ELODIE template matches in SDSS DR17. Uncalibrated predictions and calibrated linear mappings are tracked:
+### Label↔Flux Alignment
+`extract_labels.py` iterates in flux order (`star_ids.npy`) and looks up VAC labels by MANGAID, guaranteeing that row $i$ of `X_flux` corresponds to row $i$ of `Y_labels`. An earlier bug iterating in catalog order caused label scrambling across all training samples.
 
-### Validation Performance Summary
-Telemetry extracted from [dataset_error_report.txt](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/report/dataset_error_report.txt):
+### Split-Then-Normalize
+`engine.py` computes normalization statistics exclusively on the train split before constructing the val dataset. The resulting `label_stats.npy` and `feature_stats.npy` are loaded by all evaluation scripts, ensuring denormalization uses the exact training-time constants rather than hardcoded values.
 
-| Parameter | Metric | Raw Performance | Calibrated Performance |
-| :--- | :--- | :--- | :--- |
-| **$T_{\text{eff}}$ (K)** | MAE | $385.63\text{ K}$ | **$367.58\text{ K}$** |
-| | RMSE | $482.51\text{ K}$ | $462.63\text{ K}$ |
-| | $R^2$ Score | $0.5346$ | **$0.5722$** |
-| **$\log g$ (dex)** | MAE | $1.0233\text{ dex}$ | **$0.2737\text{ dex}$** |
-| | RMSE | $1.1941\text{ dex}$ | $0.4496\text{ dex}$ |
-| | $R^2$ Score | $-5.8691$ | **$0.0263$** |
-| **$[\text{Fe}/\text{H}]$ (dex)** | MAE | $0.4404\text{ dex}$ | **$0.2866\text{ dex}$** |
-| | RMSE | $0.5467\text{ dex}$ | $0.3767\text{ dex}$ |
-| | $R^2$ Score | $-1.0148$ | **$0.0435$** |
+### Edge Spike Correction
+Raw MaStar spectra suffer from edge-pixel spikes caused by median-filter boundary effects. After continuum division, any pixel deviating more than 5σ from the median is replaced by linear interpolation from valid neighbors. Without this fix, ~15% of training spectra collapsed to a flat line of −0.33 after z-score normalization, making absorption lines invisible to the CNN.
+
+### Domain Alignment (SDSS Validation)
+SDSS BOSS spectra (R~2000) have slightly higher resolution than MaStar (R~1800). `eval_core.py` applies a Gaussian blur of σ=0.35px after wavelength resampling to match MaStar's instrumental profile, and uses `ivar ≤ 0` as the bad-pixel mask (equivalent to MaStar's `MASK != 0`).
+
+### Label Source
+Training uses `FEH_NOAPP_MED` (non-APOGEE-calibrated [Fe/H] median) from VAC v2. The APOGEE-calibrated column (`FEH_MED`) introduces a systematic offset against the SSPP optical scale used in the SDSS validation set, which degraded cross-domain [Fe/H] R² from −0.29 to −1.21 in earlier experiments.
+
+### Combspec Deduplication
+`preprocess_flux.py` builds a MANGAID set from goodspec before appending combspec. Any combspec star already present in goodspec (as a per-visit entry) is skipped to prevent the same star appearing in both train and val splits.
 
 ---
 
-## Explainable AI (XAI) Verification
+## XAI Hypotheses
 
-We verify the physical validity of the model predictions using the hypotheses and ablation tests evaluated in [xai_analyzer.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/validation/xai_analyzer.py):
+### Hypothesis 1 — Global Weight Attribution
+The 30D dense branch must claim a measurable fraction of the first post-fusion layer's L1 weight magnitude, confirming active information fusion rather than the model ignoring physical features.
 
-### Hypothesis 1: Global Weight Attribution
-* **Definition**: The model must assign a significant portion of its representation capacity to the expert physical feature branch rather than relying entirely on the raw data-driven CNN branch.
-* **Result**: The 18D physical feature branch accounts for **$14.56\%$** of the total L1 weight magnitude in the first large linear projection layer, demonstrating active information fusion.
+### Hypothesis 2 — Local Jacobian Sensitivity
+The Jacobian $\partial \log g / \partial \lambda$ should peak at physically meaningful absorption-line wavelengths rather than at uninformative continuum regions. The proof ratio is defined as:
 
-### Hypothesis 2: Local Jacobian Sensitivity
-* **Definition**: The model's sensitivity gradient (Jacobian $\partial \text{parameter} / \partial \lambda$) should spike in regions containing physical stellar absorption lines rather than in the uninformative continuum background.
-* **Result**: The Jacobian sensitivity peaks significantly around expected line profiles:
+$$\text{Proof Ratio} = \frac{\text{mean Jacobian in H-alpha region}}{\text{mean Jacobian in continuum}}$$
 
-```
-▶ Element Feature Importance Metrics (Hypothesis 2):
-   - H-alpha (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.002258
-     * Gravity Sensitivity     : 0.002850
+### Zero-Ablation Analysis
+Setting the 30D feature vector to zero measures the dense branch's absolute contribution in physical units (K, dex). The GUI toggle button exposes this comparison interactively.
 
-   - Mg-b Triplet (Magnesium):
-     * Temperature Sensitivity : 0.006062
-     * Gravity Sensitivity     : 0.015227
+---
 
-   - Na-D Doublet (Sodium):
-     * Temperature Sensitivity : 0.002381
-     * Gravity Sensitivity     : 0.003213
+## Report Files
 
-   - H-beta (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.006069
-     * Gravity Sensitivity     : 0.013533
-```
-
-* **Hypothesis 2 Proof Ratio**: The sensitivity of the model to the target line regions relative to the background continuum confirms physical alignment with a Proof Ratio of **$0.5917$**.
-* **Ablated Proof Ratio**: When the 18D physical features are zero-ablated, the H-alpha region proof ratio drops to **$0.4146$**, showing that the network's local pixel-level alignment degrades when explicit structural domain features are removed.
-
-### Zero-Ablation Sensitivity Analysis
-We evaluate the global importance of the 18D physical feature branch by measuring the Mean Absolute Difference (MAD) in predictions when the physical features are artificially set to zero:
-* **Effective Temperature ($T_{\text{eff}}$) Shift**: **$332.5766\text{ K}$**
-* **Surface Gravity ($\log g$) Shift**: **$0.5853\text{ dex}$**
-* **Metallicity ($[\text{Fe}/\text{H}]$) Shift**: **$0.3779\text{ dex}$**
-
-These significant output shifts demonstrate that the model heavily relies on the physical feature branch to lock in target coordinates.
+| File | Contents |
+|------|----------|
+| `report/dataset_error_report.txt` | MAE / RMSE / R² on SDSS validation set |
+| `report/dataset_error_report_mastar.txt` | MAE / RMSE / R² on MaStar held-out val |
+| `report/xai_physics_report.txt` | Jacobian sensitivity, proof ratios, ablation shifts |
+| `report/xai_physics_report_mastar.txt` | Same metrics computed on MaStar spectra |
