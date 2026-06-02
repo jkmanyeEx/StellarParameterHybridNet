@@ -137,11 +137,26 @@ class StellarValidatorGUI:
     def generate_physics_description(self, true_val, pred_val,
                                       err_teff, err_logg, err_feh, weight_ratio):
         def spectral_type(t):
-            for lo, cls in [(30000,"O"),(10000,"B"),(7500,"A"),
-                            (6000,"F"),(5200,"G"),(3700,"K"),(0,"M")]:
-                if t >= lo:
-                    return cls
-            return "M"
+            classes = [
+                ("O", 30000.0, 60000.0),
+                ("B", 10000.0, 30000.0),
+                ("A", 7500.0,  10000.0),
+                ("F", 6000.0,  7500.0),
+                ("G", 5200.0,  6000.0),
+                ("K", 3700.0,  5200.0),
+                ("M", 2400.0,  3700.0)
+            ]
+            if t >= 60000.0:
+                return "O0"
+            if t < 2400.0:
+                return "M9"
+            for cls, min_t, max_t in classes:
+                if t >= min_t:
+                    val = (max_t - t) / (max_t - min_t)
+                    subtype = int(val * 10)
+                    subtype = max(0, min(9, subtype))
+                    return f"{cls}{subtype}"
+            return "M9"
         lum = lambda g: "V (dwarf)" if g >= 3.8 else "III (giant)"
         pop = "solar-abundance" if true_val[2] >= -0.3 else "metal-poor (Pop II)"
         fname = self.valid_paths[self.current_idx] if self.valid_paths else "Unknown"

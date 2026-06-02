@@ -180,7 +180,11 @@ def run_real_bulk_evaluation():
 
     model = StellarParameterHybridNet().to(device)
     if os.path.exists(weights_path):
-        model.load_state_dict(torch.load(weights_path, map_location=device))
+        checkpoint = torch.load(weights_path, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
+            model.load_state_dict(checkpoint['model_state'])
+        else:
+            model.load_state_dict(checkpoint)
         print(f"   [Weights] Loaded from {weights_path}")
     else:
         print(f"   [WARN]  Weights not found — using random init.")
@@ -250,7 +254,7 @@ def run_real_bulk_evaluation():
         f.write("=" * 70 + "\n\n")
         f.write(f"Total valid STAR samples : {total}\n")
         f.write(f"Ground truth source      : SSPP CSV (*adop)\n")
-        f.write(f"Label normalization      : true training stats (6085 MaStar samples)\n\n")
+        f.write(f"Label normalization      : label_stats.npy (train split)\n\n")
         
         f.write("▶ [SECTION 1] Raw Performance (Cross-Domain):\n")
         for i in range(3):

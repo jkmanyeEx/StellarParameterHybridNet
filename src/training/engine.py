@@ -62,16 +62,17 @@ def main(resume=False):
     val_idx     = valid_indices[train_size:]
     print(f"   > Train: {len(train_idx)}  Val: {len(val_idx)}")
 
-    # ── 2. train Dataset (fit_stats=True → 통계 저장) ─────────────────────────
+    # ── 2. train Dataset (fit_stats=True → 통계 저장, augment=True) ────────────
     print("\nBuilding train dataset and fitting normalization stats...")
     train_dataset = StellarHybridDataset(
         flux_path, feature_path, label_path,
         indices=train_idx,
         fit_stats=True,
         stats_save_dir=stats_dir,
+        augment=True,          # Gaussian noise + continuum tilt + RV shift
     )
 
-    # ── 3. val Dataset (fit_stats=False → train 통계 재사용) ──────────────────
+    # ── 3. val Dataset (fit_stats=False → train 통계 재사용, augment=False) ─────
     print("Building val dataset with train stats...")
     val_dataset = StellarHybridDataset(
         flux_path, feature_path, label_path,
@@ -79,6 +80,7 @@ def main(resume=False):
         fit_stats=False,
         feature_stats=(train_dataset.feature_mean, train_dataset.feature_std),
         label_stats=(train_dataset.label_mean,   train_dataset.label_std),
+        augment=False,         # val은 augmentation 없이 원본으로 평가
     )
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE,
