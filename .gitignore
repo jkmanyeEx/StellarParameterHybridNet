@@ -13,6 +13,5 @@ __pycache__
 # 대용량 데이터 파일
 *.npy
 *.pth
-data/
 
 scratch/
