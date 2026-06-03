@@ -49,7 +49,7 @@ ARM_TO_CCD = {"B": "1", "G": "2", "R": "3", "I": "4"}
 
 FETCH_LIMIT  = 15000
 MAX_WORKERS  = 8
-MIN_FITS_SIZE = 50_000   # bytes; VOTable stubs are ~1-2 KB, real FITS are ~100+ KB
+MIN_FITS_SIZE = 20_000   # bytes; VOTable stubs are ~1-2 KB, real FITS can be as small as ~40 KB
 
 
 # ── Metadata ──────────────────────────────────────────────────────────────────
@@ -66,10 +66,10 @@ def fetch_metadata():
         sobject_id, teff, logg, fe_h,
         snr_px_ccd1, snr_px_ccd2, snr_px_ccd3, snr_px_ccd4
     FROM galah_dr4.mainstartable
-    WHERE snr_px_ccd1 > 30
-      AND snr_px_ccd2 > 30
-      AND snr_px_ccd3 > 30
-      AND snr_px_ccd4 > 30
+    WHERE snr_px_ccd1 BETWEEN 30 AND 250
+      AND snr_px_ccd2 BETWEEN 30 AND 250
+      AND snr_px_ccd3 BETWEEN 30 AND 250
+      AND snr_px_ccd4 BETWEEN 30 AND 250
       AND flag_sp   = 0
       AND flag_fe_h = 0
       AND teff  BETWEEN 4000 AND 7000
@@ -122,7 +122,7 @@ def download_single_arm(sobject_id, arm_letter):
 
     params = {
         "ID":             sobject_id,
-        "DR":             "galah_dr3",   # DR4 is served via the galah_dr3 endpoint
+        "DR":             "galah_dr4",   # Query the official GALAH DR4 spectrum archive
         "IDX":            "0",
         "FILT":           arm_letter,
         "RESPONSEFORMAT": "fits",
@@ -134,6 +134,8 @@ def download_single_arm(sobject_id, arm_letter):
         if len(r.content) < MIN_FITS_SIZE:
             # DataCentral returned a VOTable stub or error page instead of FITS
             return False, f"response too small ({len(r.content)} bytes, likely VOTable stub)"
+        if not r.content.startswith(b"SIMPLE  ="):
+            return False, "Not a valid FITS file (starts with non-FITS header signature)"
         with open(dest, "wb") as f:
             f.write(r.content)
         return True, "downloaded"

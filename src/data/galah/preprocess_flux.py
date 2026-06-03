@@ -48,7 +48,7 @@ STANDARD_WAVE = np.stack(WAVE_GRIDS, axis=0)  # (4, 4000)
 # CCD number suffix for each arm (matches DataCentral filename convention)
 CCD_SUFFIXES = ["1", "2", "3", "4"]
 
-MIN_FITS_SIZE = 50_000  # bytes — real FITS are >>50 KB; VOTable stubs are ~2 KB
+MIN_FITS_SIZE = 20_000  # bytes — real FITS are >=40 KB; VOTable stubs are ~2 KB
 
 
 def _spike_clean(norm):
