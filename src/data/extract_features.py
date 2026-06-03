@@ -1,13 +1,15 @@
 import numpy as np
 from scipy.optimize import curve_fit
 import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 try:
     from src.utils.config import CPU_WORKERS_PREPROCESS
 except ImportError:
-    from multiprocessing import cpu_count
-    CPU_WORKERS_PREPROCESS = max(1, cpu_count() - 1)
+    try:
+        from utils.config import CPU_WORKERS_PREPROCESS
+    except ImportError:
+        from multiprocessing import cpu_count
+        CPU_WORKERS_PREPROCESS = max(1, cpu_count() - 1)
 
 
 def gaussian_profile(x, a, x0, sigma, c):
@@ -89,7 +91,7 @@ def extract_30d_features_single_star(wave, norm_flux):
 
             feature_vector.extend([equivalent_width, fwhm, depth])
 
-    return feature_vector
+    return np.array(feature_vector, dtype=np.float32)
 
 
 def _extract_worker(args):
@@ -104,7 +106,7 @@ def main():
 
     print("Loading exported data...")
     base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    flux_path = os.path.join(base_dir, "data", "processed", "X_flux_telluric.npy")
+    flux_path = os.path.join(base_dir, "data", "processed", "X_flux_clean.npy")
     wave_path = os.path.join(base_dir, "data", "processed", "standard_wave.npy")
     out_path  = os.path.join(base_dir, "data", "processed", "X_features_physical.npy")
 

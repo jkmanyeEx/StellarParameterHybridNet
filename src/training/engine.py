@@ -33,7 +33,7 @@ def main(resume=False):
     print_config()
 
     base_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    flux_path    = os.path.join(base_dir, "data", "processed", "X_flux_telluric.npy")
+    flux_path    = os.path.join(base_dir, "data", "processed", "X_flux_clean.npy")
     feature_path = os.path.join(base_dir, "data", "processed", "X_features_physical.npy")
     label_path   = os.path.join(base_dir, "data", "processed", "Y_labels.npy")
     save_dir     = os.path.join(base_dir, "weights")
@@ -150,6 +150,7 @@ def main(resume=False):
             for flux, feat, labels in val_loader:
                 flux, feat, labels = flux.to(DEVICE), feat.to(DEVICE), labels.to(DEVICE)
                 running_val += criterion(model(flux, feat), labels).item()
+        model.train()
 
         avg_train = running_train / len(train_loader)
         avg_val   = running_val   / len(val_loader)

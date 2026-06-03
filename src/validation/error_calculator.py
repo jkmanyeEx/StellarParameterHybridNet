@@ -39,21 +39,10 @@ if os.path.exists(_feature_stats_path):
     FEATURE_STD  = _fs[1].astype(np.float32)
     print(f"[eval] feature_stats loaded.")
 else:
-    print("[eval] WARNING: feature_stats.npy not found, using hardcoded fallback.")
-    FEATURE_MEAN = np.array([
-        2.168124, 7.557751, 0.262975, 2.347122, 7.639357, 0.270184,
-        3792.6926, 6.315333, 916.74817, 24787.14, 7.6943, 5746.3926,
-        57894.89, 13.219859, 23364.115, 49927.203, 12.890424, 21554.318,
-        2.200694, 8.109497, 0.195792, 1.391210, 9.626699, 0.142387,
-        2542.1873, 3.208517, 560.62006, 2.048892, 7.622436, 0.205190
-    ], dtype=np.float32)
-    FEATURE_STD = np.array([
-        1.108715, 3.819997, 0.083094, 1.789646, 4.650632, 0.107463,
-        325363.9, 4.353704, 67839.76, 1051861.4, 4.765630, 249964.83,
-        1816901.2, 6.214286, 1473617.5, 1515983.6, 3.159087, 1685659.9,
-        3.245821, 5.176442, 0.168010, 0.947460, 3.302940, 0.101471,
-        290824.66, 2.565086, 46014.37, 2.838998, 4.929203, 0.155020
-    ], dtype=np.float32)
+    raise FileNotFoundError(
+        f"feature_stats.npy not found at {_feature_stats_path}.\n"
+        "Run scripts/train.py first to generate normalization stats."
+    )
 
 
 def read_csv(csv_path):
@@ -142,7 +131,9 @@ def load_spectra_from_fits_list(file_paths, csv_path, dataset_dir):
         if not is_star:
             continue
 
-        aligned = align_wavelength_resolution(loglam, flux, target_pixel_size=4563)
+        aligned = align_wavelength_resolution(loglam, flux,
+                                               target_pixel_size=4563,
+                                               target_wave_grid=WAVE_GRID)
         if aligned is None:
             print(f"   [SKIP]  {base}: flux alignment failed.")
             continue

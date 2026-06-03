@@ -3,12 +3,14 @@ import astropy.io.fits as fits
 from scipy.ndimage import median_filter
 import os
 from multiprocessing import Pool, cpu_count
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 try:
     from src.utils.config import CPU_WORKERS_PREPROCESS
 except ImportError:
-    CPU_WORKERS_PREPROCESS = max(1, cpu_count() - 1)
+    try:
+        from utils.config import CPU_WORKERS_PREPROCESS
+    except ImportError:
+        CPU_WORKERS_PREPROCESS = max(1, cpu_count() - 1)
 
 
 def _normalize_single_spectrum(args):
@@ -124,10 +126,9 @@ def run_mastar_preprocessing_pipeline(goodspec_path, combspec_path=None):
     )
     os.makedirs(out_dir, exist_ok=True)
 
-    np.save(os.path.join(out_dir, "X_flux_clean.npy"),    X_flux)
-    np.save(os.path.join(out_dir, "X_flux_telluric.npy"), X_flux)
-    np.save(os.path.join(out_dir, "star_ids.npy"),        np.array(all_ids))
-    np.save(os.path.join(out_dir, "standard_wave.npy"),   standard_wave)
+    np.save(os.path.join(out_dir, "X_flux_clean.npy"),  X_flux)
+    np.save(os.path.join(out_dir, "star_ids.npy"),       np.array(all_ids))
+    np.save(os.path.join(out_dir, "standard_wave.npy"),  standard_wave)
 
     print(f"Saved → {out_dir}")
     print(f"Final Matrix Shape: {X_flux.shape}")

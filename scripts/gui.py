@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 plt.rcParams.update({
     'font.family': 'sans-serif',
-    'font.sans-serif': ['SF Pro Display', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
+    'font.sans-serif': ['DejaVu Sans', 'Arial', 'Helvetica', 'sans-serif'],
     'font.size': 7.0, 'axes.labelsize': 7.0, 'axes.titlesize': 9.0,
     'xtick.labelsize': 6.0, 'ytick.labelsize': 6.0,
     'legend.fontsize': 6.0, 'figure.titlesize': 9.0
@@ -18,7 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.models.hybrid_net import StellarParameterHybridNet
 from src.validation.eval_core import align_wavelength_resolution, continuum_normalize
-from src.validation.xai_analyzer import extract_30d_features_live_eval
+from src.validation.xai_analyzer import extract_30d_features_live_eval, calculate_per_line_weight_attribution
 from src.validation.error_calculator import collect_spec_fits_files, load_spectra_from_fits_list
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -117,6 +117,7 @@ class StellarValidatorGUI:
         else:
             print("[WARN] Weights not found.")
         self.model.eval()
+        self.per_line_attr = calculate_per_line_weight_attribution(self.model)
 
     # ── data loading ──────────────────────────────────────────────────────────
     def lazy_load_real_fits(self):
@@ -195,7 +196,9 @@ class StellarValidatorGUI:
             f" [Fe/H]\n"
             f"   Catalog {true_val[2]:+.3f} ({pop})\n"
             f"   Model   {pred_val[2]:+.3f}  |  Delta {err_feh:+.4f} dex\n\n"
-            f" 30D Branch Weight Share: {weight_ratio:.2f}%\n"
+            f" 30D Branch Weight Share: {weight_ratio:.2f}%\n\n"
+            f" Per-Line Weight (Top 5):\n"
+            + "".join(f"   {n:<12s} {p:5.1f}%\n" for n, p in self.per_line_attr[:5])
         )
 
     # ── UI layout ─────────────────────────────────────────────────────────────
@@ -237,6 +240,20 @@ class StellarValidatorGUI:
             font=("Consolas", 11, "bold"),
             bg="#221133", fg="#ff77ff", bd=1, relief=tk.RIDGE, pady=4)
         self.weight_share_lbl.pack(fill=tk.X, padx=18, pady=4)
+
+        # per-line weight attribution
+        line_frame = tk.LabelFrame(left, text="Per-Line Weight Attribution",
+                                   font=("Helvetica", 9), bg="#12121f",
+                                   fg="#aaaaff", padx=6, pady=4)
+        line_frame.pack(fill=tk.X, padx=18, pady=4)
+        self.line_attr_labels = []
+        for i, (lname, pct) in enumerate(self.per_line_attr[:10]):
+            lbl = tk.Label(line_frame,
+                           text=f"{lname:<12s} {pct:5.1f}%",
+                           font=("Consolas", 8), bg="#12121f", fg="#ccccff",
+                           anchor="w")
+            lbl.pack(fill=tk.X)
+            self.line_attr_labels.append(lbl)
 
         # ablated toggle
         self.toggle_btn = tk.Button(
@@ -429,6 +446,7 @@ class StellarValidatorGUI:
         self.ax_xai.set_ylabel("XAI Sensitivity", color="#ffffff", fontsize=7)
         self.ax_xai.set_xlabel("Wavelength (Angstrom)", color="#ffffff", fontsize=7)
         self.ax_xai.set_xlim(3650.0, 10250.0)
+        self.ax_xai.set_ylim(0.0, 0.035)
         self.ax_xai.tick_params(colors="#ffffff", labelsize=6)
         self.ax_xai.grid(True, color="#252538", linestyle="--", alpha=0.4)
         self.ax_xai.legend(facecolor="#151522", edgecolor="#333344",

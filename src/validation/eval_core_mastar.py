@@ -6,7 +6,7 @@ from torch.utils.data import random_split
 
 def load_mastar_spectra():
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    flux_path = os.path.join(base_dir, "data", "processed", "X_flux_telluric.npy")
+    flux_path = os.path.join(base_dir, "data", "processed", "X_flux_clean.npy")
     label_path = os.path.join(base_dir, "data", "processed", "Y_labels.npy")
 
     if not os.path.exists(flux_path):

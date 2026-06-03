@@ -30,6 +30,20 @@ Hypothesis 2 Proof Ratio (Ablated 30D Features): 1.1888
    - 30D Physical Feature Layer Contribution: 20.4856%
 
 ============================================================
+▶ Per-Absorption-Line Weight Attribution (Dense Branch)
+============================================================
+   H_alpha        12.87%  ██████
+   Mg_I_b         12.47%  ██████
+   H_beta         12.45%  ██████
+   Fe_I_5270      11.96%  █████
+   Na_I           11.42%  █████
+   Ca_II_K         9.45%  ████
+   Ca_II_H         8.62%  ████
+   H_delta         8.52%  ████
+   H_gamma         6.77%  ███
+   Fe_I_4383       5.47%  ██
+
+============================================================
 ▶ Zero-Ablation Sensitivity Analysis
 ============================================================
 Mean output shift when physical features are artificially zeroed:

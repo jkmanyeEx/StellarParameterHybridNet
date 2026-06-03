@@ -2,7 +2,7 @@ import os
 import numpy as np
 from astropy.io import fits
 from scipy.interpolate import interp1d
-from scipy.ndimage import median_filter
+from scipy.ndimage import median_filter, gaussian_filter1d
 
 
 def continuum_normalize(flux, ivar=None, window=201):
@@ -65,19 +65,23 @@ def continuum_normalize(flux, ivar=None, window=201):
     return norm_flux
 
 
-def align_wavelength_resolution(loglam, flux, target_pixel_size=4563):
+def align_wavelength_resolution(loglam, flux, target_pixel_size=4563,
+                                target_wave_grid=None):
     """
     Convert SDSS spec (loglam array, flux array) onto a fixed linear grid.
-    loglam : 1-D array of log10(wavelength / Angstrom)
-    flux   : 1-D flux array matching loglam (already continuum-normalized)
+    loglam           : 1-D array of log10(wavelength / Angstrom)
+    flux             : 1-D flux array matching loglam (already continuum-normalized)
+    target_wave_grid : pre-loaded wave grid array (pass to avoid repeated disk I/O).
+                       If None, loads standard_wave.npy from disk.
     Returns aligned flux (1, target_pixel_size), or None if data is bad.
     """
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    wave_path = os.path.join(base_dir, "data", "processed", "standard_wave.npy")
-    if os.path.exists(wave_path):
-        target_wave_grid = np.load(wave_path)
+    if target_wave_grid is not None:
+        target_wave_grid = np.asarray(target_wave_grid)
     else:
-        target_wave_grid = np.linspace(3650.0, 10250.0, target_pixel_size)
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        wave_path = os.path.join(base_dir, "data", "processed", "standard_wave.npy")
+        target_wave_grid = np.load(wave_path) if os.path.exists(wave_path) \
+                           else np.linspace(3650.0, 10250.0, target_pixel_size)
 
     loglam = np.atleast_1d(loglam).flatten().astype(float)
     flux   = np.atleast_1d(flux).flatten().astype(float)
@@ -114,7 +118,6 @@ def align_wavelength_resolution(loglam, flux, target_pixel_size=4563):
         #   Pixel scale: d(lambda)/d(pixel) = lambda * ln(10) * 0.0001 ≈ 0.000230 * lambda
         #   FWHM_kernel_pixels = 0.000242 / 0.000230 ≈ 1.05 pixels
         #   sigma_pixels = 1.05 / 2.355 ≈ 0.45 pixels
-        from scipy.ndimage import gaussian_filter1d
         aligned = gaussian_filter1d(aligned, sigma=0.45)
         
         aligned = aligned.reshape(1, -1)
