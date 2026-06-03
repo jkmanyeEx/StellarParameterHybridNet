@@ -115,9 +115,10 @@ class StellarHybridDataset(Dataset):
           4. RV shift
         """
         # 1. Continuum tilt: z-score 이전 raw flux에 적용
+        #    a 범위 축소 (0.05→0.02): pre-z-score tilt 강도를 post-z-score 수준으로 조정
         x    = torch.linspace(-1.0, 1.0, self.n_pixels)
-        a    = torch.empty(1).uniform_(-0.05, 0.05).item()
-        b    = torch.empty(1).uniform_(-0.02, 0.02).item()
+        a    = torch.empty(1).uniform_(-0.02, 0.02).item()
+        b    = torch.empty(1).uniform_(-0.01, 0.01).item()
         flux = raw_1d * (1.0 + a * x + b * (x ** 2))
 
         # 2. Z-score normalize
@@ -144,6 +145,11 @@ class StellarHybridDataset(Dataset):
     def __getitem__(self, idx):
         if self.augment:
             flux = self._augment_flux(self.raw_fluxes_for_aug[idx].clone())
+            # 30D 피쳫에도 작은 노이즈 추가 (sigma=0.05 in normalized space)
+            # CNN 입력과의 신뢰도 균형 유지 → 30D 반치 편향 억제
+            # Gaussian fitting 자체의 측정 불확도를 모사
+            feat = self.features[idx] + torch.randn_like(self.features[idx]) * 0.05
         else:
             flux = self.fluxes[idx]
-        return flux.unsqueeze(0), self.features[idx], self.labels[idx]
+            feat = self.features[idx]
+        return flux.unsqueeze(0), feat, self.labels[idx]

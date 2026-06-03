@@ -28,10 +28,10 @@ if os.path.exists(_label_stats_path):
     LABEL_STD  = _ls[1].astype(np.float32)
     print(f"[eval] label_stats loaded: mean={LABEL_MEAN}, std={LABEL_STD}")
 else:
-    # 재학습 전 fallback — 구버전 하드코딩 값
-    print("[eval] WARNING: label_stats.npy not found, using hardcoded fallback.")
-    LABEL_MEAN = np.array([5169.055664,  3.549788, -0.657069], dtype=np.float32)
-    LABEL_STD  = np.array([ 998.064880,  1.081975,  0.723029], dtype=np.float32)
+    raise FileNotFoundError(
+        f"label_stats.npy not found at {_label_stats_path}.\n"
+        "Run scripts/train.py first to generate normalization stats."
+    )
 
 if os.path.exists(_feature_stats_path):
     _fs = np.load(_feature_stats_path)        # shape (2, 30): [mean, std]

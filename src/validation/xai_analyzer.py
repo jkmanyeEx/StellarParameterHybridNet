@@ -181,7 +181,7 @@ def run_xai_line_profile_analysis(num_samples=1000):
         pred = model(input_base, feat_tensor)
         baseline_preds.append(pred.detach().cpu().numpy()[0])
         for p_idx in range(3):
-            model.zero_grad(); input_base.grad = None
+            input_base.grad = None
             g = torch.zeros_like(pred); g[0, p_idx] = 1.0
             pred.backward(g, retain_graph=(p_idx < 2))
             jac_acc[p_idx] += np.abs(input_base.grad.cpu().numpy()[0, 0])
@@ -191,7 +191,7 @@ def run_xai_line_profile_analysis(num_samples=1000):
         pred_abl  = model(input_abl, zero_feat)
         ablated_preds.append(pred_abl.detach().cpu().numpy()[0])
         for p_idx in range(3):
-            model.zero_grad(); input_abl.grad = None
+            input_abl.grad = None
             g = torch.zeros_like(pred_abl); g[0, p_idx] = 1.0
             pred_abl.backward(g, retain_graph=(p_idx < 2))
             jac_acc_ablated[p_idx] += np.abs(input_abl.grad.cpu().numpy()[0, 0])

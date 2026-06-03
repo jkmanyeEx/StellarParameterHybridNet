@@ -113,16 +113,16 @@ def main():
     if not os.path.exists(flux_path):
         raise FileNotFoundError(f"No flux file found at: {flux_path}")
 
-    X_flux_telluric = np.load(flux_path)
-    standard_wave   = np.load(wave_path)
-    total_stars     = X_flux_telluric.shape[0]
+    X_flux_clean  = np.load(flux_path)
+    standard_wave  = np.load(wave_path)
+    total_stars    = X_flux_clean.shape[0]
 
-    print(f"   > Flux matrix shape : {X_flux_telluric.shape}")
+    print(f"   > Flux matrix shape : {X_flux_clean.shape}")
     print(f"   > Wave grid shape   : {standard_wave.shape}")
     print(f"\nExtracting 30D features (10 lines x 3) "
           f"with {CPU_WORKERS_PREPROCESS} workers (of {cpu_count()} total cores)...")
 
-    args = [(standard_wave, X_flux_telluric[i]) for i in range(total_stars)]
+    args = [(standard_wave, X_flux_clean[i]) for i in range(total_stars)]
 
     with Pool(processes=CPU_WORKERS_PREPROCESS) as pool:
         X_features_list = list(tqdm(

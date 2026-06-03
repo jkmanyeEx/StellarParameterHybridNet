@@ -6,47 +6,47 @@ Analyzed Samples: 1000 Real MaStar Spectra (Cumulative Jacobian Gradients)
 
 ▶ Element Feature Importance Metrics (Hypothesis 2):
    - H-alpha (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.003080
-     * Gravity Sensitivity     : 0.005270
+     * Temperature Sensitivity : 0.002552
+     * Gravity Sensitivity     : 0.005277
 
    - Mg-b Triplet (Magnesium):
-     * Temperature Sensitivity : 0.003089
-     * Gravity Sensitivity     : 0.011196
+     * Temperature Sensitivity : 0.003116
+     * Gravity Sensitivity     : 0.009538
 
    - Na-D Doublet (Sodium):
-     * Temperature Sensitivity : 0.003003
-     * Gravity Sensitivity     : 0.002768
+     * Temperature Sensitivity : 0.002219
+     * Gravity Sensitivity     : 0.004509
 
    - H-beta (Hydrogen Balmer):
-     * Temperature Sensitivity : 0.003225
-     * Gravity Sensitivity     : 0.005135
+     * Temperature Sensitivity : 0.003547
+     * Gravity Sensitivity     : 0.004988
 
-Hypothesis 2 Proof Ratio: 1.1997
-Hypothesis 2 Proof Ratio (Ablated 30D Features): 1.1888
+Hypothesis 2 Proof Ratio: 1.5203
+Hypothesis 2 Proof Ratio (Ablated 30D Features): 1.6609
 
 ============================================================
 ▶ Global Weight Attribution Architecture (Hypothesis 1)
 ============================================================
-   - 30D Physical Feature Layer Contribution: 20.4856%
+   - 30D Physical Feature Layer Contribution: 24.0910%
 
 ============================================================
 ▶ Per-Absorption-Line Weight Attribution (Dense Branch)
 ============================================================
-   H_alpha        12.87%  ██████
-   Mg_I_b         12.47%  ██████
-   H_beta         12.45%  ██████
-   Fe_I_5270      11.96%  █████
-   Na_I           11.42%  █████
-   Ca_II_K         9.45%  ████
-   Ca_II_H         8.62%  ████
-   H_delta         8.52%  ████
-   H_gamma         6.77%  ███
-   Fe_I_4383       5.47%  ██
+   H_alpha        13.70%  ██████
+   Mg_I_b         13.16%  ██████
+   H_beta         12.81%  ██████
+   Na_I           12.75%  ██████
+   Fe_I_5270      11.72%  █████
+   Ca_II_K         8.60%  ████
+   H_delta         8.18%  ████
+   Ca_II_H         7.68%  ███
+   H_gamma         6.33%  ███
+   Fe_I_4383       5.09%  ██
 
 ============================================================
 ▶ Zero-Ablation Sensitivity Analysis
 ============================================================
 Mean output shift when physical features are artificially zeroed:
-   - T_eff  : 132.2560 K
-   - log g  : 0.1422 dex
-   - [Fe/H] : 0.0995 dex
+   - T_eff  : 374.3442 K
+   - log g  : 0.1864 dex
+   - [Fe/H] : 0.1133 dex
