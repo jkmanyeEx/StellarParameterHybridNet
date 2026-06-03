@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 from .eval_core_mastar import load_mastar_spectra
 from .xai_analyzer import extract_30d_features_live_eval
-from ..models.hybrid_net import StellarParameterHybridNet
+from src.models.apogee.hybrid_net import StellarParameterHybridNet
 
 # ── 경로 ──────────────────────────────────────────────────────────────────────
 _base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))

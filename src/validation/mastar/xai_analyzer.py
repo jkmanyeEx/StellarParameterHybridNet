@@ -3,8 +3,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from ..models.hybrid_net import StellarParameterHybridNet
-from ..data.extract_features import extract_30d_features_single_star
+from src.models.mastar.hybrid_net import StellarParameterHybridNet
+from src.data.mastar.extract_features import extract_30d_features_single_star
 
 
 def extract_30d_features_live_eval(wave, norm_flux):
