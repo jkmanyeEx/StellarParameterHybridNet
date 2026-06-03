@@ -2,26 +2,29 @@
   APOGEE Test Evaluation Report
 ======================================================================
 
-  Evaluated samples  : 1500
+  Evaluated samples  : 5000
   Split type         : Test
+  Training set size  : 37497 stars
+  Validation set     : 7500 stars
+  Test set           : 5000 stars
   Label normalisation: label_stats.npy
 
 ▶ [SECTION 1] Performance Metrics:
    * T_eff  (K):
-     MAE            : 24.8114 K
-     RMSE           : 53.4889 K
-     Relative Error : 0.48%
-     R2 Score       : 0.9961
+     MAE            : 14.9690 K
+     RMSE           : 28.3917 K
+     Relative Error : 0.30%
+     R2 Score       : 0.9982
 
    * log g  (dex):
-     MAE            : 0.0496 dex
-     RMSE           : 0.0766 dex
-     Relative Error : 3.17%
-     R2 Score       : 0.9957
+     MAE            : 0.0375 dex
+     RMSE           : 0.0556 dex
+     Relative Error : 2.09%
+     R2 Score       : 0.9964
 
    * [Fe/H] (dex):
-     MAE            : 0.0184 dex
-     RMSE           : 0.0308 dex
-     Relative Error : 19.20%
-     R2 Score       : 0.9871
+     MAE            : 0.0128 dex
+     RMSE           : 0.0218 dex
+     Relative Error : 12.45%
+     R2 Score       : 0.9936
 

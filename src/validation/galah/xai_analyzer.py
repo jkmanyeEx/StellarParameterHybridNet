@@ -164,7 +164,7 @@ def integrated_gradients_galah(model, norm_flux_4arm, feat_tensor,
 
 # ── Main XAI pipeline ─────────────────────────────────────────────────────────
 
-def run_xai_line_profile_analysis(num_samples=100, ig_steps=50):
+def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=None):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"\n{'='*70}")
     print("  GALAH XAI — Jacobian + Integrated Gradients Analysis")
@@ -192,7 +192,7 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50):
     LABEL_STD = _ls[1].astype(np.float32)
     print(f"   [XAI] Label statistics loaded — std={LABEL_STD}")
 
-    weights_path = os.path.join(base_dir, "weights", "galah", "stellar_hybrid_model.pth")
+    weights_path = weights_path or os.path.join(base_dir, "weights", "galah", "stellar_hybrid_model.pth")
     if not os.path.exists(weights_path):
         raise FileNotFoundError(
             f"Model weights not found at: {weights_path}\n"
@@ -206,6 +206,24 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50):
         model.load_state_dict(ckpt)
     print(f"   [XAI] Weights loaded from: {weights_path}")
     model.eval()
+
+    # Load training metadata
+    n_train = None
+    _meta = os.path.join(proc_dir, "train_meta.npy")
+    if os.path.exists(_meta):
+        try:
+            m = np.load(_meta); n_train = int(m[0])
+            print(f"   [XAI] Training set size : {n_train} stars")
+        except Exception:
+            pass
+    if n_train is None:
+        try:
+            _c = torch.load(weights_path, map_location='cpu')
+            if isinstance(_c, dict) and 'n_train' in _c:
+                n_train = int(_c['n_train'])
+                print(f"   [XAI] Training set size : {n_train} stars")
+        except Exception:
+            pass
 
     X_flux_all = np.load(os.path.join(proc_dir, "X_flux_clean.npy"))
     wave_grid  = np.load(os.path.join(proc_dir, "standard_wave.npy"))
@@ -368,6 +386,8 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50):
         f.write("  GALAH Stellar HybridNet — XAI Physics Report\n")
         f.write("=" * 70 + "\n\n")
         f.write(f"  Analyzed spectra         : {valid_count}\n")
+        if n_train is not None:
+            f.write(f"  Training set size        : {n_train} stars\n")
         f.write(f"  Jacobian method          : ∂output/∂input (single backward pass)\n")
         f.write(f"  IG method                : Integrated Gradients "
                 f"(Sundararajan et al., 2017)\n")

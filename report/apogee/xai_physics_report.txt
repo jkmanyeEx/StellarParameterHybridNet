@@ -3,28 +3,29 @@
 ======================================================================
 
   Analyzed spectra         : 100
+  Training set size        : 37497 stars
   Jacobian method          : ∂output/∂input (single backward pass)
   IG method                : Integrated Gradients (Sundararajan et al., 2017)
   IG interpolation steps   : 50
-  IG mean completeness err : 0.008452
+  IG mean completeness err : 0.012576
 
 ======================================================================
 ▶ Section 1 — Jacobian Line Sensitivity
 ======================================================================
    Fe-I-15648 (Blue):
-     T_eff sensitivity : 0.002974
-     log g sensitivity : 0.003637
+     T_eff sensitivity : 0.001834
+     log g sensitivity : 0.002088
 
    Br-14 (Green):
-     T_eff sensitivity : 0.002390
-     log g sensitivity : 0.004062
+     T_eff sensitivity : 0.002754
+     log g sensitivity : 0.005369
 
    Br-11 (Red):
-     T_eff sensitivity : 0.002568
-     log g sensitivity : 0.006105
+     T_eff sensitivity : 0.002308
+     log g sensitivity : 0.006725
 
-   Proof Ratio (normal)  : 0.8784
-   Proof Ratio (ablated) : 0.9244
+   Proof Ratio (normal)  : 0.9873
+   Proof Ratio (ablated) : 1.0805
 
 ======================================================================
 ▶ Section 2 — Integrated Gradients Line Attribution
@@ -34,26 +35,26 @@
    Completeness axiom: Σ IG ≈ f(input) - f(baseline).
 
    Fe-I-15648 (Blue):
-     |IG| T_eff : 0.001172
-     |IG| log g : 0.001410
+     |IG| T_eff : 0.000811
+     |IG| log g : 0.001085
 
    Br-14 (Green):
-     |IG| T_eff : 0.001895
-     |IG| log g : 0.002604
+     |IG| T_eff : 0.003573
+     |IG| log g : 0.005276
 
    Br-11 (Red):
-     |IG| T_eff : 0.000631
-     |IG| log g : 0.001689
+     |IG| T_eff : 0.000591
+     |IG| log g : 0.002410
 
-   Proof Ratio (IG)         : 1.7691
-   Mean completeness error  : 0.008452
+   Proof Ratio (IG)         : 2.4108
+   Mean completeness error  : 0.012576
 
    Comparison — Jacobian vs. Integrated Gradients:
    Line                                   Jac T_eff     IG T_eff
    ------------------------------------------------------------
-   Fe-I-15648 (Blue)                       0.002974     0.001172
-   Br-14 (Green)                           0.002390     0.001895
-   Br-11 (Red)                             0.002568     0.000631
+   Fe-I-15648 (Blue)                       0.001834     0.000811
+   Br-14 (Green)                           0.002754     0.003573
+   Br-11 (Red)                             0.002308     0.000591
 
 ======================================================================
 ▶ Section 3 — Global Weight Attribution
@@ -64,30 +65,30 @@
      Fusion (concat)    : 4928 D
 
    Nominal dim ratio  : 128/4928 = 2.5974%
-   Learned L1 ratio   : 24.5962%
-   Learned / Nominal  : x9.47
+   Learned L1 ratio   : 12.8618%
+   Learned / Nominal  : x4.95
 
-   The Dense branch occupies 24.60% of post-fusion
+   The Dense branch occupies 12.86% of post-fusion
    L1 weight despite contributing only 2.60% of
-   dimensions — 9.47x upweighted by training.
+   dimensions — 4.95x upweighted by training.
 
 ======================================================================
 ▶ Section 4 — Per-Line Weight Attribution (Dense Branch)
 ======================================================================
-   Br_11            11.00%  █████
-   Si_I_15960       10.57%  █████
-   Al_I_16755       10.56%  █████
-   Fe_I_16040       10.32%  █████
-   Br_14            10.30%  █████
-   Mg_I_15749       10.15%  █████
-   Fe_I_15200        9.95%  ████
-   Fe_I_15648        9.24%  ████
-   Si_I_16680        9.07%  ████
-   Si_I_16094        8.84%  ████
+   Al_I_16755       15.41%  ███████
+   Br_11            12.97%  ██████
+   Mg_I_15749       12.58%  ██████
+   Si_I_16680        9.81%  ████
+   Si_I_15960        9.57%  ████
+   Fe_I_15648        9.17%  ████
+   Fe_I_16040        8.91%  ████
+   Br_14             8.14%  ████
+   Fe_I_15200        6.95%  ███
+   Si_I_16094        6.50%  ███
 
 ======================================================================
 ▶ Section 5 — Zero-Ablation Sensitivity
 ======================================================================
-   T_eff  shift : 59.5453 K
-   log g  shift : 0.0597 dex
-   [Fe/H] shift : 0.0495 dex
+   T_eff  shift : 51.3158 K
+   log g  shift : 0.0640 dex
+   [Fe/H] shift : 0.0305 dex

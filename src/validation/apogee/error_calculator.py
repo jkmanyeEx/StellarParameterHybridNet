@@ -38,7 +38,31 @@ def calculate_statistical_metrics(y_true, y_pred):
     return mae, rmse, r2, np.array([rel_teff, rel_logg, rel_feh])
 
 
-def run_real_bulk_evaluation():
+def _load_train_meta(proc_dir, weights_path):
+    """
+    Return (n_train, n_val, n_test) from the checkpoint or train_meta.npy.
+    Falls back to (None, None, None) if neither source is available.
+    """
+    # Prefer checkpoint (most authoritative — written at the same time as the model)
+    if os.path.exists(weights_path):
+        try:
+            ckpt = torch.load(weights_path, map_location='cpu')
+            if isinstance(ckpt, dict) and 'n_train' in ckpt:
+                return int(ckpt['n_train']), int(ckpt['n_val']), int(ckpt['n_test'])
+        except Exception:
+            pass
+    # Fallback: train_meta.npy saved by engine.py
+    meta_path = os.path.join(proc_dir, "train_meta.npy")
+    if os.path.exists(meta_path):
+        try:
+            m = np.load(meta_path)
+            return int(m[0]), int(m[1]), int(m[2])
+        except Exception:
+            pass
+    return None, None, None
+
+
+def run_real_bulk_evaluation(weights_path=None):
     print(f"\n{'='*70}")
     print("  APOGEE Evaluation")
     print(f"{'='*70}")
@@ -49,7 +73,8 @@ def run_real_bulk_evaluation():
     flux_path    = os.path.join(proc_dir, "X_flux_clean.npy")
     feature_path = os.path.join(proc_dir, "X_features_physical.npy")
     label_path   = os.path.join(proc_dir, "Y_labels.npy")
-    weights_path = os.path.join(base_dir, "weights", "apogee", "stellar_hybrid_model.pth")
+    if weights_path is None:
+        weights_path = os.path.join(base_dir, "weights", "apogee", "stellar_hybrid_model.pth")
 
     for p in (flux_path, feature_path, label_path):
         if not os.path.exists(p):
@@ -122,6 +147,15 @@ def run_real_bulk_evaluation():
     print(f"  Model checkpoint : {weights_path}")
     model.eval()
 
+    # Load training metadata
+    n_train, n_val, n_test = _load_train_meta(proc_dir, weights_path)
+    if n_train is not None:
+        print(f"  Training set size  : {n_train} stars")
+        print(f"  Validation set     : {n_val} stars")
+        print(f"  Test set           : {n_test} stars")
+    else:
+        print("  Training set size  : unknown (train_meta.npy not found)")
+
     # ── 3. Inference ──────────────────────────────────────────────────────────
     fluxes   = np.load(flux_path,    mmap_mode='r')[val_idx]
     features = np.load(feature_path, mmap_mode='r')[val_idx]
@@ -173,6 +207,10 @@ def run_real_bulk_evaluation():
         f.write("=" * 70 + "\n\n")
         f.write(f"  Evaluated samples  : {len(val_idx)}\n")
         f.write(f"  Split type         : {split_label}\n")
+        if n_train is not None:
+            f.write(f"  Training set size  : {n_train} stars\n")
+            f.write(f"  Validation set     : {n_val} stars\n")
+            f.write(f"  Test set           : {n_test} stars\n")
         f.write(f"  Label normalisation: label_stats.npy\n\n")
         f.write("▶ [SECTION 1] Performance Metrics:\n")
         for i in range(3):

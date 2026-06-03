@@ -57,7 +57,7 @@ LEARNING_RATE = 0.0002
 
 
 def print_config():
-    print("⚙️  [Config] Hardware & Training Settings:")
+    print("[MaStar Config] Hardware and Training Settings:")
     print(f"   > Compute Device       : {DEVICE}")
     print(f"   > Total CPU Cores      : {_total_cores}")
     print(f"   > Preprocess Workers   : {CPU_WORKERS_PREPROCESS}")

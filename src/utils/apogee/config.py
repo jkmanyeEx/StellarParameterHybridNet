@@ -63,7 +63,7 @@ LABEL_DIM = 3
 
 
 def print_config():
-    print("⚙️  [APOGEE Config] Hardware & Training Settings:")
+    print("[APOGEE Config] Hardware and Training Settings:")
     print(f"   > Compute Device       : {DEVICE}")
     print(f"   > Total CPU Cores      : {_total_cores}")
     print(f"   > Preprocess Workers   : {CPU_WORKERS_PREPROCESS}")

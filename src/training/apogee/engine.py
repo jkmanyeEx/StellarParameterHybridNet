@@ -29,7 +29,7 @@ def save_loss_curve(train_losses, val_losses, save_path):
     plt.close()
 
 
-def main(resume=False):
+def main(resume=False, max_stars=None):
     print_config()
 
     base_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -56,6 +56,13 @@ def main(resume=False):
 
     rng = np.random.default_rng(42)
     rng.shuffle(valid_indices)
+
+    # Apply --limit / max_stars cap AFTER shuffling so the subset is random,
+    # not just the first N rows in the file (which may be ordered by SNR).
+    if max_stars is not None and max_stars < len(valid_indices):
+        valid_indices = valid_indices[:max_stars]
+        print(f"   [Limit] max_stars={max_stars} — "
+              f"using {len(valid_indices)} of {np.sum(valid_mask)} valid stars")
 
     n         = len(valid_indices)
     # Use 75/15/10 split — APOGEE dataset is smaller than GALAH (~9-15k stars),
@@ -116,7 +123,23 @@ def main(resume=False):
     )
 
     os.makedirs(save_dir, exist_ok=True)
-    best_ckpt_path = os.path.join(save_dir, "stellar_hybrid_model.pth")
+
+    # File names encode the total valid dataset size (before split) for clarity.
+    # e.g. stellar_hybrid_model_n30010.pth
+    size_tag       = f"_n{len(valid_indices)}"
+    best_ckpt_path = os.path.join(save_dir, f"stellar_hybrid_model{size_tag}.pth")
+    curve_path     = os.path.join(save_dir, f"loss_curve{size_tag}.png")
+    latest_path    = os.path.join(save_dir, "stellar_hybrid_model.pth")
+
+    # Persist training metadata for use by evaluate.py and xai_analysis.py
+    train_meta_path = os.path.join(stats_dir, "train_meta.npy")
+    np.save(train_meta_path, np.array([
+        len(train_idx),   # [0] n_train
+        len(val_idx),     # [1] n_val
+        len(test_idx),    # [2] n_test
+    ], dtype=np.int64))
+    print(f"   [Meta] train_meta.npy saved — "
+          f"train={len(train_idx)}, val={len(val_idx)}, test={len(test_idx)}")
 
     # ── 5. Resume (선택)
     start_epoch   = 0
@@ -170,7 +193,7 @@ def main(resume=False):
 
         if avg_val < best_val_loss:
             best_val_loss = avg_val
-            torch.save({
+            ckpt = {
                 'epoch':            epoch,
                 'model_state':      model.state_dict(),
                 'optimizer_state':  optimizer.state_dict(),
@@ -178,7 +201,12 @@ def main(resume=False):
                 'best_val_loss':    best_val_loss,
                 'train_losses':     train_losses,
                 'val_losses':       val_losses,
-            }, best_ckpt_path)
+                'n_train':          len(train_idx),
+                'n_val':            len(val_idx),
+                'n_test':           len(test_idx),
+            }
+            torch.save(ckpt, best_ckpt_path)
+            torch.save(ckpt, latest_path)   # keep latest pointer in sync
 
         if (epoch + 1) % 5 == 0 or epoch == 0 or (epoch + 1) == EPOCHS:
             print(f"Epoch [{epoch+1:3d}/{EPOCHS}] "
@@ -188,7 +216,8 @@ def main(resume=False):
                   f"{' ★' if avg_val == best_val_loss else ''}")
 
     print(f"\nBest val loss for APOGEE: {best_val_loss:.4f}")
-    save_loss_curve(train_losses, val_losses, save_path=os.path.join(save_dir, "loss_curve.png"))
+    print(f"   [Saved] {best_ckpt_path}")
+    save_loss_curve(train_losses, val_losses, save_path=curve_path)
 
 
 if __name__ == "__main__":
