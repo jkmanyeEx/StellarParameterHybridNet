@@ -56,10 +56,23 @@ def main(resume=False):
 
     rng = np.random.default_rng(42)
     rng.shuffle(valid_indices)
-    train_size  = int(0.8 * len(valid_indices))
-    train_idx   = valid_indices[:train_size]
-    val_idx     = valid_indices[train_size:]
-    print(f"   > Train: {len(train_idx)}  Val: {len(val_idx)}")
+
+    n            = len(valid_indices)
+    train_end    = int(0.70 * n)   # 70 %
+    val_end      = int(0.90 * n)   # next 20 %  (70–90)
+    # remaining 10 % → test
+
+    train_idx = valid_indices[:train_end]
+    val_idx   = valid_indices[train_end:val_end]
+    test_idx  = valid_indices[val_end:]
+
+    # Persist test indices so evaluate.py can load them without touching engine logic
+    np.save(os.path.join(stats_dir, "test_indices.npy"), test_idx)
+
+    print(f"   [Split] Total valid : {n}")
+    print(f"   [Split] Train       : {len(train_idx)} (70 %)")
+    print(f"   [Split] Val         : {len(val_idx)}   (20 %)")
+    print(f"   [Split] Test        : {len(test_idx)}  (10 %) — sealed until final evaluation")
 
     # ── 2. train Dataset
     print("\nBuilding GALAH train dataset and fitting normalization stats...")

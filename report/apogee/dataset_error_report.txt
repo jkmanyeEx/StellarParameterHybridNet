@@ -1,0 +1,27 @@
+======================================================================
+  APOGEE Test Evaluation Report
+======================================================================
+
+  Evaluated samples  : 1500
+  Split type         : Test
+  Label normalisation: label_stats.npy
+
+▶ [SECTION 1] Performance Metrics:
+   * T_eff  (K):
+     MAE            : 24.8114 K
+     RMSE           : 53.4889 K
+     Relative Error : 0.48%
+     R2 Score       : 0.9961
+
+   * log g  (dex):
+     MAE            : 0.0496 dex
+     RMSE           : 0.0766 dex
+     Relative Error : 3.17%
+     R2 Score       : 0.9957
+
+   * [Fe/H] (dex):
+     MAE            : 0.0184 dex
+     RMSE           : 0.0308 dex
+     Relative Error : 19.20%
+     R2 Score       : 0.9871
+

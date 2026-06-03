@@ -1,0 +1,28 @@
+======================================================================
+  Cross-Domain Evaluation: GALAH Model on MaStar Validation Spectra
+======================================================================
+
+  Evaluation samples     : 11817
+  Model source           : GALAH DR4 HybridNet
+  Input domain           : MaStar DR17 (optical, 3600–10000 Å)
+  Feature extraction     : 45-D Gaussian profiles (GALAH arm grid)
+  Label normalisation    : GALAH training split statistics
+
+  T_eff  (K):
+    MAE            : 758.3551 K
+    RMSE           : 1880.8125 K
+    Relative Error : 12.56%
+    R²             : 0.2050
+
+  log g  (dex):
+    MAE            : 0.8690 dex
+    RMSE           : 1.1180 dex
+    Relative Error : 35.23%
+    R²             : -0.1906
+
+  [Fe/H] (dex):
+    MAE            : 0.3633 dex
+    RMSE           : 0.4967 dex
+    Relative Error : 108.86%
+    R²             : 0.2813
+

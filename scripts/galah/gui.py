@@ -1,3 +1,10 @@
+"""
+GALAH DR4 Stellar Parameter Evaluation GUI.
+
+Loads real GALAH DR4 spectra from data/galah/processed/ and displays
+per-star predictions, Jacobian XAI sensitivity, and weight attribution.
+"""
+
 import os
 import sys
 import numpy as np
@@ -14,248 +21,266 @@ plt.rcParams.update({
     'legend.fontsize': 6.0, 'figure.titlesize': 9.0
 })
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.models.hybrid_net import StellarParameterHybridNet
-from src.validation.eval_core import align_wavelength_resolution, continuum_normalize
-from src.validation.xai_analyzer import extract_30d_features_live_eval, calculate_per_line_weight_attribution
-from src.validation.error_calculator import collect_spec_fits_files, load_spectra_from_fits_list
+from src.models.galah.hybrid_net import StellarParameterHybridNet
+from src.data.galah.extract_features import extract_45d_features_single_star
+from src.validation.galah.xai_analyzer import calculate_per_line_weight_attribution
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-TARGET_DATASET_DIR = os.path.join(BASE_DIR, "data", "validation_dataset")
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-# ── 파장 그리드 ───────────────────────────────────────────────────────────────
-_wave_path = os.path.join(BASE_DIR, "data", "processed", "standard_wave.npy")
-WAVE_GRID  = np.load(_wave_path) if os.path.exists(_wave_path) \
-             else np.linspace(3650.0, 10250.0, 4563)
+# ── Paths ─────────────────────────────────────────────────────────────────────
+_proc_dir    = os.path.join(BASE_DIR, "data", "galah", "processed")
+_flux_path   = os.path.join(_proc_dir, "X_flux_clean.npy")
+_label_path  = os.path.join(_proc_dir, "Y_labels.npy")
+_wave_path   = os.path.join(_proc_dir, "standard_wave.npy")
+_ls_path     = os.path.join(_proc_dir, "label_stats.npy")
+_fs_path     = os.path.join(_proc_dir, "feature_stats.npy")
 
-# ── 정규화 통계: label_stats / feature_stats 로드 ─────────────────────────────
-_proc_dir = os.path.join(BASE_DIR, "data", "processed")
+for p in (_flux_path, _label_path, _wave_path, _ls_path, _fs_path):
+    if not os.path.exists(p):
+        raise FileNotFoundError(
+            f"Required file not found: {p}\n"
+            "Execute the GALAH preprocessing and training pipeline first."
+        )
 
-_ls_path = os.path.join(_proc_dir, "label_stats.npy")
-if os.path.exists(_ls_path):
-    _ls = np.load(_ls_path)
-    LABEL_MEAN = _ls[0].astype(np.float32)
-    LABEL_STD  = _ls[1].astype(np.float32)
-else:
-    LABEL_MEAN = np.array([5169.055664,  3.549788, -0.657069], dtype=np.float32)
-    LABEL_STD  = np.array([ 998.064880,  1.081975,  0.723029], dtype=np.float32)
+WAVE_GRID    = np.load(_wave_path)                       # (4, 4000)
+_ls          = np.load(_ls_path)
+LABEL_MEAN   = _ls[0].astype(np.float32)
+LABEL_STD    = _ls[1].astype(np.float32)
+_fs          = np.load(_fs_path)
+FEATURE_MEAN = _fs[0].astype(np.float32)
+FEATURE_STD  = _fs[1].astype(np.float32)
 
-_fs_path = os.path.join(_proc_dir, "feature_stats.npy")
-if os.path.exists(_fs_path):
-    _fs = np.load(_fs_path)
-    FEATURE_MEAN = _fs[0].astype(np.float32)
-    FEATURE_STD  = _fs[1].astype(np.float32)
-else:
-    FEATURE_MEAN = np.zeros(30, dtype=np.float32)
-    FEATURE_STD  = np.ones(30,  dtype=np.float32)
+# ── Architecture dims ─────────────────────────────────────────────────────────
+CNN_BRANCH_DIM   = 6400   # 4 arms × 1600
+DENSE_BRANCH_DIM = 128
+FUSION_DIM       = CNN_BRANCH_DIM + DENSE_BRANCH_DIM  # 6528
 
-# ── 10개 흡수선 정의 (스펙트럼 하이라이트 + XAI 레이블용) ─────────────────────
-ABSORPTION_LINES = [
-    ("H-alpha",    6543, 6583, "#ff4444"),
-    ("H-beta",     4841, 4881, "#ff6644"),
-    ("H-gamma",    4320, 4360, "#ff8844"),
-    ("H-delta",    4082, 4122, "#ffaa44"),
-    ("Ca II K",    3919, 3949, "#44aaff"),
-    ("Ca II H",    3953, 3983, "#4488ff"),
-    ("Mg I b",     5155, 5195, "#44ff44"),
-    ("Fe I 5270",  5255, 5285, "#ffff44"),
-    ("Fe I 4383",  4368, 4398, "#ffdd44"),
-    ("Na I D",     5877, 5907, "#ff44ff"),
+# ── GALAH 4-arm wavelength ranges for axis labels ─────────────────────────────
+ARM_RANGES = [
+    (4713, 4903, "CCD1 Blue"),
+    (5648, 5873, "CCD2 Green"),
+    (6478, 6737, "CCD3 Red"),
+    (7585, 7887, "CCD4 NIR"),
 ]
 
-# ── XAI 분석 창 (Jacobian proof ratio 계산용) ────────────────────────────────
-XAI_ABSORPTION_WINDOWS = {
-    "H-alpha":  (6513.0, 6613.0),
-    "Mg-b":     (5140.0, 5200.0),
-    "Na-D":     (5860.0, 5920.0),
-    "H-beta":   (4830.0, 4890.0),
-}
+# Absorption lines per arm for spectrum subplots (name, arm_idx, center_Å, color)
+ABSORPTION_LINES = [
+    ("H-beta",   0, 4861, "#ff6644"),
+    ("Fe 4882",  0, 4882, "#ffaa44"),
+    ("Mg 4703",  0, 4703, "#44ffaa"),
+    ("Ba 4897",  0, 4897, "#aaffaa"),
+    ("Mg 5711",  1, 5711, "#44ff44"),
+    ("Fe 5662",  1, 5662, "#aaff44"),
+    ("Fe 5782",  1, 5782, "#ffff44"),
+    ("Fe 5862",  1, 5862, "#ffdd44"),
+    ("H-alpha",  2, 6563, "#ff4444"),
+    ("Li 6708",  2, 6708, "#44aaff"),
+    ("Fe 6495",  2, 6495, "#ff8888"),
+    ("Ca 6499",  2, 6499, "#ffaaaa"),
+    ("K  7699",  3, 7699, "#ff44ff"),
+    ("Fe 7748",  3, 7748, "#ff88ff"),
+    ("O  7772",  3, 7772, "#cc88ff"),
+]
 
-# ── FUSION 차원: CNN(1216) + Dense(128) = 1344 ───────────────────────────────
-CNN_BRANCH_DIM = 1216
-FUSION_DIM     = CNN_BRANCH_DIM + 128  # 1344
+# Same lines mapped to (arm_idx, pixel_index) for XAI concat plot
+# pixel_index = arm_offset(4000*arm_idx) + index of nearest wavelength in arm grid
+def _build_xai_line_markers():
+    """
+    Convert each absorption line's wavelength to a pixel index in the
+    concatenated (4 × 4000 = 16000) Jacobian x-axis.
+    Returns list of (name, pixel_idx, color).
+    """
+    markers = []
+    arm_wave_grids = None   # loaded lazily after WAVE_GRID is available
+    return markers  # filled after module-level WAVE_GRID is loaded
+
+XAI_LINE_MARKERS = []   # populated in StellarValidatorGUI.__init__
 
 
 class StellarValidatorGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("SDSS DR17 Stellar Parameter Evaluation")
-        self.root.geometry("1440x920")
+        self.root.title("GALAH DR4 Stellar Parameter Evaluation")
+        self.root.geometry("1500x940")
         self.root.configure(bg="#151522")
 
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         self.init_model()
 
-        self.max_virtual_rows      = 0
-        self.current_idx           = 0
-        self.X_flux                = None
-        self.Y_labels              = None
-        self.valid_paths           = []
-        self.current_flux          = None
-        self.norm_flux             = None
-        self.physical_features_30d = None
-        self.show_ablated          = False   # toggle state
+        # Build validation split (same seed/logic as engine.py)
+        self._load_val_split()
+
+        # Build XAI pixel-index markers from ABSORPTION_LINES + WAVE_GRID
+        global XAI_LINE_MARKERS
+        XAI_LINE_MARKERS = []
+        for name, arm_idx, center_wave, color in ABSORPTION_LINES:
+            arm_wave = WAVE_GRID[arm_idx]           # (4000,)
+            px_local = int(np.argmin(np.abs(arm_wave - center_wave)))
+            px_global = arm_idx * 4000 + px_local  # position in concat axis
+            XAI_LINE_MARKERS.append((name, px_global, color))
+
+        self.current_idx          = 0
+        self.norm_flux_4arm       = None
+        self.physical_features    = None
+        self.show_ablated         = False
 
         self.setup_ui()
-        self.root.after(100, self.lazy_load_real_fits)
+        self.root.after(100, self.update_profile)
         self.root.bind("<Left>",  lambda e: self.move_prev())
         self.root.bind("<Right>", lambda e: self.move_next())
         self.root.focus_set()
 
-    # ── model ─────────────────────────────────────────────────────────────────
+    # ── Model ─────────────────────────────────────────────────────────────────
     def init_model(self):
-        weights_path = os.path.join(BASE_DIR, "weights", "stellar_hybrid_model.pth")
-        self.model = StellarParameterHybridNet().to(self.device)
-        if os.path.exists(weights_path):
-            ckpt = torch.load(weights_path, map_location=self.device)
-            if isinstance(ckpt, dict) and 'model_state' in ckpt:
-                self.model.load_state_dict(ckpt['model_state'])
-            else:
-                self.model.load_state_dict(ckpt)
-            print(f"[Model] Loaded from {weights_path}")
+        weights_path = os.path.join(BASE_DIR, "weights", "galah", "stellar_hybrid_model.pth")
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError(
+                f"Model weights not found: {weights_path}\n"
+                "Execute the GALAH training pipeline first."
+            )
+        self.model = StellarParameterHybridNet(use_features=True).to(self.device)
+        ckpt = torch.load(weights_path, map_location=self.device)
+        if isinstance(ckpt, dict) and 'model_state' in ckpt:
+            self.model.load_state_dict(ckpt['model_state'])
         else:
-            print("[WARN] Weights not found.")
+            self.model.load_state_dict(ckpt)
+        print(f"[GUI] Model loaded from: {weights_path}")
         self.model.eval()
         self.per_line_attr = calculate_per_line_weight_attribution(self.model)
 
-    # ── data loading ──────────────────────────────────────────────────────────
-    def lazy_load_real_fits(self):
-        all_spec_files = collect_spec_fits_files(TARGET_DATASET_DIR)
-        if not all_spec_files:
-            self.path_lbl.configure(text=f"[Error] No spec FITS in {TARGET_DATASET_DIR}/")
-            return
-        try:
-            csv_path = os.path.join(TARGET_DATASET_DIR, "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
-            flux_matrix, label_matrix, valid_paths = load_spectra_from_fits_list(
-                all_spec_files, csv_path, TARGET_DATASET_DIR)
-            self.X_flux           = flux_matrix
-            self.Y_labels         = label_matrix
-            self.valid_paths      = valid_paths
-            self.max_virtual_rows = len(self.Y_labels)
-            self.path_lbl.configure(text=f"Dataset: {self.max_virtual_rows} SDSS DR17 FITS loaded")
-            self.update_profile()
-        except Exception as e:
-            self.path_lbl.configure(text=f"[Error] {e}")
+    # ── Val split ─────────────────────────────────────────────────────────────
+    def _load_val_split(self):
+        X_flux_all   = np.load(_flux_path,  mmap_mode='r')
+        Y_labels_all = np.load(_label_path, mmap_mode='r')
+        n = min(len(X_flux_all), len(Y_labels_all))
+        raw_labels = Y_labels_all[:n]
 
-    # ── XAI weight ratio ──────────────────────────────────────────────────────
+        # Use sealed test indices if available, otherwise fall back to val split
+        test_indices_path = os.path.join(_proc_dir, "test_indices.npy")
+        if os.path.exists(test_indices_path):
+            val_indices = np.load(test_indices_path)
+            print(f"[GUI] Sealed test set loaded: {len(val_indices)} stars")
+        else:
+            valid_mask    = (raw_labels[:, 0] > -900) & \
+                            (raw_labels[:, 1] > -900) & \
+                            (raw_labels[:, 2] > -900)
+            valid_indices = np.where(valid_mask)[0]
+            rng = np.random.default_rng(42)
+            rng.shuffle(valid_indices)
+            train_size  = int(0.8 * len(valid_indices))
+            val_indices = valid_indices[train_size:]
+            print(f"[GUI] Legacy val split loaded: {len(val_indices)} stars")
+
+        self.X_flux   = np.array(X_flux_all[val_indices])    # (N, 4, 4000)
+        self.Y_labels = np.array(Y_labels_all[val_indices])  # (N, 3)
+        self.n_val    = len(val_indices)
+
+    # ── Weight ratio ──────────────────────────────────────────────────────────
     def calculate_weight_attribution_ratio(self):
         try:
             for name, param in self.model.named_parameters():
                 if "weight" in name.lower() and param.ndim == 2 \
                         and param.shape[1] == FUSION_DIM:
-                    W = param.detach().cpu().numpy()
+                    W     = param.detach().cpu().numpy()
                     total = np.sum(np.abs(W))
                     if total == 0:
-                        return 0.0
+                        return 0.0, 0.0
                     dense = np.sum(np.abs(W[:, CNN_BRANCH_DIM:]))
-                    return (dense / total) * 100
-            return -1.0
+                    learned  = dense / total * 100
+                    nominal  = DENSE_BRANCH_DIM / FUSION_DIM * 100
+                    return learned, nominal
+            return -1.0, -1.0
         except Exception:
-            return -1.0
+            return -1.0, -1.0
 
-    # ── physics description ───────────────────────────────────────────────────
+    # ── Physics description ───────────────────────────────────────────────────
     def generate_physics_description(self, true_val, pred_val,
-                                      err_teff, err_logg, err_feh, weight_ratio):
+                                     err_teff, err_logg, err_feh,
+                                     learned_wr, nominal_wr):
         def spectral_type(t):
-            classes = [
-                ("O", 30000.0, 60000.0),
-                ("B", 10000.0, 30000.0),
-                ("A", 7500.0,  10000.0),
-                ("F", 6000.0,  7500.0),
-                ("G", 5200.0,  6000.0),
-                ("K", 3700.0,  5200.0),
-                ("M", 2400.0,  3700.0)
-            ]
-            if t >= 60000.0:
-                return "O0"
-            if t < 2400.0:
-                return "M9"
-            for cls, min_t, max_t in classes:
-                if t >= min_t:
-                    val = (max_t - t) / (max_t - min_t)
-                    subtype = int(val * 10)
-                    subtype = max(0, min(9, subtype))
-                    return f"{cls}{subtype}"
+            for cls, lo, hi in [("O",30000,60000),("B",10000,30000),
+                                  ("A",7500,10000),("F",6000,7500),
+                                  ("G",5200,6000),("K",3700,5200),("M",2400,3700)]:
+                if t >= lo:
+                    sub = min(9, int((hi - t) / (hi - lo) * 10))
+                    return f"{cls}{sub}"
             return "M9"
         lum = lambda g: "V (dwarf)" if g >= 3.8 else "III (giant)"
         pop = "solar-abundance" if true_val[2] >= -0.3 else "metal-poor (Pop II)"
-        fname = os.path.basename(self.valid_paths[self.current_idx]) \
-                if self.valid_paths else "Unknown"
-        mode  = "ABLATED (30D zeroed)" if self.show_ablated else "NORMAL"
+        mode = "ABLATED (45D zeroed)" if self.show_ablated else "NORMAL"
+        ratio_str = f"{learned_wr:.2f}% / {nominal_wr:.2f}% (x{learned_wr/max(nominal_wr,1e-8):.2f})"
         return (
-            f" File: {fname}\n"
             f" XAI Mode: {mode}\n\n"
             f" Spectral Class\n"
-            f"   True : {spectral_type(true_val[0])}{lum(true_val[1])}\n"
-            f"   Pred : {spectral_type(pred_val[0])}{lum(pred_val[1])}\n\n"
+            f"   True : {spectral_type(true_val[0])} {lum(true_val[1])}\n"
+            f"   Pred : {spectral_type(pred_val[0])} {lum(pred_val[1])}\n\n"
             f" T_eff\n"
-            f"   Catalog {true_val[0]:.0f} K  |  Model {pred_val[0]:.0f} K  |  Err {err_teff:.1f}%\n\n"
+            f"   Catalog {true_val[0]:.0f} K  |  Model {pred_val[0]:.0f} K"
+            f"  |  Err {err_teff:.1f}%\n\n"
             f" log g\n"
-            f"   Catalog {true_val[1]:.3f}  |  Model {pred_val[1]:.3f}  |  Err {err_logg:.1f}%\n\n"
+            f"   Catalog {true_val[1]:.3f}  |  Model {pred_val[1]:.3f}"
+            f"  |  Err {err_logg:.1f}%\n\n"
             f" [Fe/H]\n"
             f"   Catalog {true_val[2]:+.3f} ({pop})\n"
             f"   Model   {pred_val[2]:+.3f}  |  Delta {err_feh:+.4f} dex\n\n"
-            f" 30D Branch Weight Share: {weight_ratio:.2f}%\n\n"
+            f" 45D Branch Weight:\n"
+            f"   Learned / Nominal = {ratio_str}\n\n"
             f" Per-Line Weight (Top 5):\n"
             + "".join(f"   {n:<12s} {p:5.1f}%\n" for n, p in self.per_line_attr[:5])
         )
 
-    # ── UI layout ─────────────────────────────────────────────────────────────
+    # ── UI ────────────────────────────────────────────────────────────────────
     def setup_ui(self):
-        left = tk.Frame(self.root, bg="#12121f", width=470, bd=1, relief=tk.SOLID)
+        left = tk.Frame(self.root, bg="#12121f", width=480, bd=1, relief=tk.SOLID)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=18, pady=18)
         left.pack_propagate(False)
 
         right = tk.Frame(self.root, bg="#151522")
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=18, pady=18)
 
-        tk.Label(left, text="SDSS DR17 Stellar Evaluation",
+        tk.Label(left, text="GALAH DR4 Stellar Evaluation",
                  font=("Helvetica", 13, "bold"),
                  bg="#12121f", fg="#ffffff").pack(pady=12)
 
-        self.path_lbl = tk.Label(left, text="Loading...",
-                                 font=("Helvetica", 9, "italic"),
-                                 bg="#12121f", fg="#8888aa")
+        self.path_lbl = tk.Label(
+            left, text=f"Validation split: {self.n_val} stars",
+            font=("Helvetica", 9, "italic"), bg="#12121f", fg="#8888aa")
         self.path_lbl.pack(pady=4)
 
-        # navigation
+        # Navigation
         nav = tk.LabelFrame(left, text="Navigation", font=("Helvetica", 10),
                             bg="#12121f", fg="#ff8888", padx=8, pady=8)
         nav.pack(fill=tk.X, padx=18, pady=4)
         tk.Button(nav, text="<< Prev", command=self.move_prev,
-                  bg="#1a1a2e", fg="#ffffff",
-                  font=("Helvetica", 9)).pack(side=tk.LEFT, padx=4)
-        self.idx_lbl = tk.Label(nav, text="Loading...",
-                                font=("Helvetica", 10, "bold"),
+                  bg="#1a1a2e", fg="#ffffff", font=("Helvetica", 9)).pack(side=tk.LEFT, padx=4)
+        self.idx_lbl = tk.Label(nav, text="--", font=("Helvetica", 10, "bold"),
                                 bg="#12121f", fg="#ffffff")
         self.idx_lbl.pack(side=tk.LEFT, expand=True)
         tk.Button(nav, text="Next >>", command=self.move_next,
-                  bg="#1a1a2e", fg="#ffffff",
-                  font=("Helvetica", 9)).pack(side=tk.RIGHT, padx=4)
+                  bg="#1a1a2e", fg="#ffffff", font=("Helvetica", 9)).pack(side=tk.RIGHT, padx=4)
 
-        # weight share
+        # Weight share
         self.weight_share_lbl = tk.Label(
-            left, text="30D Feature Weight Share: --.--%",
+            left, text="45D Feature Weight: --",
             font=("Consolas", 11, "bold"),
             bg="#221133", fg="#ff77ff", bd=1, relief=tk.RIDGE, pady=4)
         self.weight_share_lbl.pack(fill=tk.X, padx=18, pady=4)
 
-        # per-line weight attribution
-        line_frame = tk.LabelFrame(left, text="Per-Line Weight Attribution",
+        # Per-line attribution
+        line_frame = tk.LabelFrame(left, text="Per-Line Weight Attribution (45D)",
                                    font=("Helvetica", 9), bg="#12121f",
                                    fg="#aaaaff", padx=6, pady=4)
         line_frame.pack(fill=tk.X, padx=18, pady=4)
         self.line_attr_labels = []
-        for i, (lname, pct) in enumerate(self.per_line_attr[:10]):
-            lbl = tk.Label(line_frame,
-                           text=f"{lname:<12s} {pct:5.1f}%",
-                           font=("Consolas", 8), bg="#12121f", fg="#ccccff",
-                           anchor="w")
+        for lname, pct in self.per_line_attr[:10]:
+            lbl = tk.Label(line_frame, text=f"{lname:<12s} {pct:5.1f}%",
+                           font=("Consolas", 8), bg="#12121f", fg="#ccccff", anchor="w")
             lbl.pack(fill=tk.X)
             self.line_attr_labels.append(lbl)
 
-        # ablated toggle
+        # Ablation toggle
         self.toggle_btn = tk.Button(
             left, text="Toggle: NORMAL Jacobian",
             font=("Helvetica", 10, "bold"),
@@ -265,35 +290,29 @@ class StellarValidatorGUI:
             command=self.toggle_ablated)
         self.toggle_btn.pack(fill=tk.X, padx=18, pady=4)
 
-        # parameter table
+        # Parameter table
         tbl = tk.LabelFrame(left, text="Parameter Comparison",
                             font=("Helvetica", 10), bg="#12121f", fg="#88ff88",
                             padx=8, pady=8)
         tbl.pack(fill=tk.X, padx=18, pady=4)
-
         for col, (txt, fg) in enumerate([
-            ("Model Pred","#88ccff"), ("Catalog GT","#ffaaee"), ("Error","#ffffaa")
+            ("Model Pred", "#88ccff"), ("Catalog GT", "#ffaaee"), ("Error", "#ffffaa")
         ], start=1):
             tk.Label(tbl, text=txt, font=("Helvetica", 9, "bold"),
                      bg="#12121f", fg=fg).grid(row=0, column=col, padx=6, pady=4)
-
-        self.pred_labels  = []
-        self.true_labels  = []
-        self.error_labels = []
-        for i, name in enumerate(["T_eff (K)", "Log g (dex)", "[Fe/H] (dex)"]):
+        self.pred_labels, self.true_labels, self.error_labels = [], [], []
+        for i, name in enumerate(["T_eff (K)", "log g (dex)", "[Fe/H] (dex)"]):
             tk.Label(tbl, text=name, font=("Helvetica", 10, "bold"),
                      bg="#12121f", fg="#ffffff").grid(row=i+1, column=0, sticky="w", padx=2, pady=8)
-            for lst, fg in [(self.pred_labels,"#88ffcc"),
-                            (self.true_labels,"#ff88aa"),
-                            (self.error_labels,"#ffff77")]:
-                lbl = tk.Label(tbl, text="-",
-                               font=("Consolas", 11, "bold"),
+            for j, (lst, fg) in enumerate([(self.pred_labels, "#88ffcc"),
+                                            (self.true_labels, "#ff88aa"),
+                                            (self.error_labels, "#ffff77")]):
+                lbl = tk.Label(tbl, text="-", font=("Consolas", 11, "bold"),
                                bg="#12121f", fg=fg)
-                lbl.grid(row=i+1, column=len(lst)+1 if lst is self.pred_labels
-                         else (2 if lst is self.true_labels else 3), padx=6)
+                lbl.grid(row=i+1, column=j+1, padx=6)
                 lst.append(lbl)
 
-        # physics description
+        # Physics description
         desc = tk.LabelFrame(left, text="Astrophysical Telemetry",
                              font=("Helvetica", 10), bg="#12121f", fg="#ffff77",
                              padx=8, pady=4)
@@ -304,156 +323,178 @@ class StellarValidatorGUI:
                                  highlightbackground="#252538")
         self.desc_text.pack(fill=tk.BOTH, expand=True)
 
-        # matplotlib
-        self.fig, (self.ax_spec, self.ax_xai) = plt.subplots(
-            2, 1, figsize=(8.5, 7.5), facecolor="#151522", sharex=True)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
+        # Matplotlib — 5 subplots: 4 arms + 1 XAI
+        self.fig, axes = plt.subplots(5, 1, figsize=(8.5, 9.0),
+                                      facecolor="#151522")
+        self.ax_arms = axes[:4]
+        self.ax_xai  = axes[4]
+        self.canvas  = FigureCanvasTkAgg(self.fig, master=right)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-    # ── navigation ────────────────────────────────────────────────────────────
+    # ── Navigation ────────────────────────────────────────────────────────────
     def move_prev(self):
-        if self.X_flux is not None and self.current_idx > 0:
+        if self.current_idx > 0:
             self.current_idx -= 1
             self.update_profile()
         self.root.focus_set()
 
     def move_next(self):
-        if self.X_flux is not None and self.current_idx < self.max_virtual_rows - 1:
+        if self.current_idx < self.n_val - 1:
             self.current_idx += 1
             self.update_profile()
         self.root.focus_set()
 
     def toggle_ablated(self):
         self.show_ablated = not self.show_ablated
-        mode = "ABLATED (30D zeroed)" if self.show_ablated else "NORMAL"
+        mode = "ABLATED (45D zeroed)" if self.show_ablated else "NORMAL"
         self.toggle_btn.configure(
             text=f"Toggle: {mode} Jacobian",
             bg="#331122" if self.show_ablated else "#112233",
             fg="#ff7777" if self.show_ablated else "#77ddff")
-        if self.norm_flux is not None:
+        if self.norm_flux_4arm is not None:
             self.execute_automated_jacobian()
 
-    # ── inference + plot ──────────────────────────────────────────────────────
+    # ── Inference + plot ──────────────────────────────────────────────────────
     def update_profile(self):
-        if self.X_flux is None or len(self.X_flux) == 0:
-            return
         self.idx_lbl.configure(
-            text=f"Star #{self.current_idx + 1} / {self.max_virtual_rows}")
+            text=f"Star #{self.current_idx + 1} / {self.n_val}")
 
-        raw_flux  = self.X_flux[self.current_idx]
-        real_true = self.Y_labels[self.current_idx]
+        raw_flux_4arm = self.X_flux[self.current_idx]    # (4, 4000)
+        real_true     = self.Y_labels[self.current_idx]
 
-        f_mean = np.mean(raw_flux); f_std = np.std(raw_flux) + 1e-8
-        self.current_flux = raw_flux.reshape(1, -1)
-        self.norm_flux    = np.clip((self.current_flux - f_mean) / f_std, -3.0, 3.0)
+        # Per-arm z-score normalisation (identical to dataset.py)
+        f_mean = np.mean(raw_flux_4arm, axis=1, keepdims=True)
+        f_std  = np.std(raw_flux_4arm,  axis=1, keepdims=True) + 1e-8
+        self.norm_flux_4arm = np.clip((raw_flux_4arm - f_mean) / f_std, -3.0, 3.0)
 
-        raw_feat  = extract_30d_features_live_eval(WAVE_GRID, raw_flux)
+        # 45D features
+        raw_feat  = extract_45d_features_single_star(WAVE_GRID, raw_flux_4arm)
         norm_feat = (raw_feat - FEATURE_MEAN) / (FEATURE_STD + 1e-8)
-        self.physical_features_30d = norm_feat.astype(np.float32)
+        self.physical_features = norm_feat.astype(np.float32)
 
-        t_flux = torch.from_numpy(self.norm_flux).float().unsqueeze(1).to(self.device)
-        t_feat = torch.from_numpy(self.physical_features_30d).float().unsqueeze(0).to(self.device)
+        t_flux = torch.from_numpy(self.norm_flux_4arm).float().unsqueeze(0).to(self.device)
+        t_feat = torch.from_numpy(self.physical_features).float().unsqueeze(0).to(self.device)
 
         with torch.no_grad():
             norm_pred = self.model(t_flux, t_feat).cpu().numpy()[0]
         real_pred = norm_pred * LABEL_STD + LABEL_MEAN
 
-        err_teff = (abs(real_true[0] - real_pred[0]) / (real_true[0] + 1e-8)) * 100
-        err_logg = (abs(real_true[1] - real_pred[1]) / (abs(real_true[1]) + 1e-8)) * 100
+        err_teff = abs(real_true[0] - real_pred[0]) / (real_true[0] + 1e-8) * 100
+        err_logg = abs(real_true[1] - real_pred[1]) / (abs(real_true[1]) + 1e-8) * 100
         err_feh  = real_pred[2] - real_true[2]
 
-        for i, (p, t, e) in enumerate(zip(self.pred_labels,
-                                           self.true_labels,
-                                           self.error_labels)):
-            fmts = [f"{real_pred[i]:.1f} K", f"{real_pred[1]:.3f}", f"{real_pred[2]:.3f}"]
-            trues = [f"{real_true[i]:.1f} K", f"{real_true[1]:.3f}", f"{real_true[2]:.3f}"]
-            errs  = [f"{err_teff:.2f}%", f"{err_logg:.2f}%", f"{abs(err_feh):.4f} dex"]
-            p.configure(text=[f"{real_pred[0]:.1f} K", f"{real_pred[1]:.3f}", f"{real_pred[2]:.3f}"][i])
-            t.configure(text=[f"{real_true[0]:.1f} K", f"{real_true[1]:.3f}", f"{real_true[2]:.3f}"][i])
-            e.configure(text=[f"{err_teff:.2f}%", f"{err_logg:.2f}%", f"{abs(err_feh):.4f} dex"][i])
+        fmt = [f"{real_pred[0]:.1f} K", f"{real_pred[1]:.3f}", f"{real_pred[2]:.3f}"]
+        tru = [f"{real_true[0]:.1f} K", f"{real_true[1]:.3f}", f"{real_true[2]:.3f}"]
+        err = [f"{err_teff:.2f}%", f"{err_logg:.2f}%", f"{abs(err_feh):.4f} dex"]
+        for i in range(3):
+            self.pred_labels[i].configure(text=fmt[i])
+            self.true_labels[i].configure(text=tru[i])
+            self.error_labels[i].configure(text=err[i])
 
-        wr = self.calculate_weight_attribution_ratio()
-        self.weight_share_lbl.configure(text=f"30D Feature Weight Share: {wr:.2f}%")
+        learned_wr, nominal_wr = self.calculate_weight_attribution_ratio()
+        self.weight_share_lbl.configure(
+            text=f"45D: {learned_wr:.2f}% (nominal {nominal_wr:.2f}%)")
 
         self.desc_text.config(state=tk.NORMAL)
         self.desc_text.delete("1.0", tk.END)
         self.desc_text.insert(tk.END,
-            self.generate_physics_description(real_true, real_pred,
-                                              err_teff, err_logg, err_feh, wr))
+            self.generate_physics_description(
+                real_true, real_pred, err_teff, err_logg, err_feh,
+                learned_wr, nominal_wr))
         self.desc_text.config(state=tk.DISABLED)
 
-        # spectrum plot
-        self.ax_spec.clear()
-        self.ax_spec.set_facecolor("#12121f")
-        self.ax_spec.plot(WAVE_GRID, self.current_flux[0],
-                          color="#8da9f4", alpha=0.85, linewidth=0.6,
-                          label=f"SDSS #{self.current_idx + 1}", zorder=3)
-        for name, lo, hi, color in ABSORPTION_LINES:
-            self.ax_spec.axvspan(lo, hi, color=color, alpha=0.15, zorder=2)
-            mid = (lo + hi) / 2
-            self.ax_spec.text(mid, 3.85, name, color=color, fontsize=5,
-                              ha='center', va='bottom', rotation=90, alpha=0.9)
-        self.ax_spec.set_title(f"Stellar Spectrum — SDSS DR17 #{self.current_idx + 1}",
-                               color="#ffffff", fontsize=9, fontweight="bold")
-        self.ax_spec.set_ylabel("Norm. Flux", color="#ffffff", fontsize=7)
-        self.ax_spec.tick_params(colors="#ffffff", labelsize=6)
-        self.ax_spec.set_xlim(3650.0, 10250.0)
-        self.ax_spec.set_ylim(-0.1, 4.4)
-        self.ax_spec.grid(True, color="#252538", linestyle="--", alpha=0.4)
-        self.ax_spec.legend(facecolor="#151522", edgecolor="#333344",
-                            labelcolor="#ffffff", loc="upper right", fontsize=6)
+        # Plot 4 arms
+        arm_colors = ["#7ab4f5", "#7de8a8", "#f58a7a", "#c87af5"]
+        for arm_idx, (ax, color) in enumerate(zip(self.ax_arms, arm_colors)):
+            ax.clear()
+            ax.set_facecolor("#12121f")
+            wave = WAVE_GRID[arm_idx]
+            ax.plot(wave, raw_flux_4arm[arm_idx], color=color,
+                    linewidth=0.6, alpha=0.85)
+            wmin, wmax, label = ARM_RANGES[arm_idx]
+            ax.set_title(label, color="#ffffff", fontsize=7, pad=2)
+            ax.set_xlim(wmin, wmax)
+            ax.tick_params(colors="#ffffff", labelsize=5)
+            ax.grid(True, color="#252538", linestyle="--", alpha=0.3)
+            for aline_name, a_arm, a_center, a_color in ABSORPTION_LINES:
+                if a_arm == arm_idx:
+                    ax.axvline(a_center, color=a_color, alpha=0.5,
+                               linewidth=0.8, linestyle="--")
+                    ax.text(a_center, ax.get_ylim()[1] * 0.9,
+                            aline_name, color=a_color, fontsize=4,
+                            ha='center', rotation=90, alpha=0.8)
 
         self.execute_automated_jacobian()
 
     def execute_automated_jacobian(self):
-        if self.norm_flux is None:
+        if self.norm_flux_4arm is None:
             return
 
-        t_flux = torch.from_numpy(self.norm_flux).float().unsqueeze(1).to(self.device)
+        t_flux = torch.from_numpy(self.norm_flux_4arm).float().unsqueeze(0).to(self.device)
         t_flux.requires_grad_(True)
 
         if self.show_ablated:
-            t_feat = torch.zeros(1, len(self.physical_features_30d),
-                                 device=self.device)
-            label  = r"Jacobian (30D ABLATED) $\partial \log g / \partial \lambda$"
+            t_feat = torch.zeros(1, len(self.physical_features), device=self.device)
+            label  = r"Jacobian (45D ABLATED) $\partial \log g / \partial \lambda$"
             color  = "#ff9944"
         else:
             t_feat = torch.from_numpy(
-                self.physical_features_30d).float().unsqueeze(0).to(self.device)
+                self.physical_features).float().unsqueeze(0).to(self.device)
             label  = r"Jacobian (Normal) $\partial \log g / \partial \lambda$"
             color  = "#ff77ff"
 
+        # Clear accumulated gradient before backward
+        if t_flux.grad is not None:
+            t_flux.grad.zero_()
+
         pred = self.model(t_flux, t_feat)
-        self.model.zero_grad()
         grad_out = torch.zeros_like(pred)
         grad_out[0, 1] = 1.0
         pred.backward(grad_out)
 
-        jac      = np.abs(t_flux.grad.cpu().numpy()[0, 0])
-        jac_sm   = np.convolve(jac, np.ones(15) / 15, mode='same')
+        # Flatten (4, 4000) gradient → concat for display
+        jac     = np.abs(t_flux.grad.cpu().numpy()[0])  # (4, 4000)
+        jac_cat = np.concatenate([jac[i] for i in range(4)])
+        jac_sm  = np.convolve(jac_cat, np.ones(15) / 15, mode='same')
+        x_axis  = np.arange(len(jac_cat))
 
         self.ax_xai.clear()
         self.ax_xai.set_facecolor("#12121f")
-        self.ax_xai.plot(WAVE_GRID, jac_sm, color=color,
+        self.ax_xai.plot(x_axis, jac_sm, color=color,
                          linewidth=0.7, alpha=0.9, label=label)
 
-        for name, lo, hi, col in ABSORPTION_LINES:
-            self.ax_xai.axvspan(lo, hi, color=col, alpha=0.12)
+        # Arm boundary markers
+        for i in range(1, 4):
+            self.ax_xai.axvline(i * 4000, color="#555566",
+                                linewidth=0.8, linestyle=":")
+        arm_labels = ["CCD1\nBlue", "CCD2\nGreen", "CCD3\nRed", "CCD4\nNIR"]
+        y_top = np.max(jac_sm) if np.max(jac_sm) > 0 else 0.035
+        for i, al in enumerate(arm_labels):
+            self.ax_xai.text((i + 0.5) * 4000, y_top * 0.92,
+                             al, color="#888899", fontsize=5, ha='center')
+
+        # Absorption line markers
+        for line_name, px_global, line_color in XAI_LINE_MARKERS:
+            self.ax_xai.axvline(px_global, color=line_color,
+                                linewidth=0.7, linestyle="--", alpha=0.55)
+            self.ax_xai.text(px_global, y_top * 0.72, line_name,
+                             color=line_color, fontsize=3.8,
+                             ha='center', va='bottom',
+                             rotation=90, alpha=0.85)
 
         mode_str = "ABLATED" if self.show_ablated else "Normal"
         self.ax_xai.set_title(f"XAI Jacobian Sensitivity — {mode_str}",
                               color="#ffffff", fontsize=9, fontweight="bold")
         self.ax_xai.set_ylabel("XAI Sensitivity", color="#ffffff", fontsize=7)
-        self.ax_xai.set_xlabel("Wavelength (Angstrom)", color="#ffffff", fontsize=7)
-        self.ax_xai.set_xlim(3650.0, 10250.0)
-        self.ax_xai.set_ylim(0.0, 0.035)
-        self.ax_xai.tick_params(colors="#ffffff", labelsize=6)
+        self.ax_xai.set_xlabel("Pixel index (4 arms concatenated)",
+                               color="#ffffff", fontsize=7)
+        self.ax_xai.tick_params(colors="#ffffff", labelsize=5)
         self.ax_xai.grid(True, color="#252538", linestyle="--", alpha=0.4)
         self.ax_xai.legend(facecolor="#151522", edgecolor="#333344",
                            labelcolor="#ffffff", loc="upper right", fontsize=6)
 
         self.fig.tight_layout()
-        self.fig.subplots_adjust(hspace=0.12)
+        self.fig.subplots_adjust(hspace=0.35)
         self.canvas.draw()
 
 

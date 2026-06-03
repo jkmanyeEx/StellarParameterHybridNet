@@ -88,19 +88,22 @@ def _process_single_star(args):
 
         try:
             with fits.open(fpath, memmap=False) as h:
-                # HDU[1] is the normalised spectrum
-                hdr  = h[1].header
-                flux = h[1].data.astype(float)
+                # DataCentral SSA delivers a single-HDU FITS (HDU[0] = normalised flux).
+                # Wavelength step is stored in PC1_1, NOT CDELT1 (which is 1.0 dummy).
+                hdr  = h[0].header
+                flux = h[0].data.astype(float)
 
                 if flux.ndim != 1 or len(flux) < 100:
                     return None
 
                 crval1 = float(hdr.get("CRVAL1", WAVE_GRIDS[arm_idx][0]))
-                cdelt1 = float(hdr.get("CDELT1",
-                                       (WAVE_GRIDS[arm_idx][-1] - WAVE_GRIDS[arm_idx][0])
-                                       / max(len(flux) - 1, 1)))
+                # PC1_1 is the true Angstrom-per-pixel step in DR4 SSA files
+                pc1_1  = float(hdr.get("PC1_1",
+                               hdr.get("CDELT1",
+                               (WAVE_GRIDS[arm_idx][-1] - WAVE_GRIDS[arm_idx][0])
+                               / max(len(flux) - 1, 1))))
                 crpix1 = float(hdr.get("CRPIX1", 1.0))
-                wave   = crval1 + (np.arange(len(flux)) - crpix1 + 1) * cdelt1
+                wave   = crval1 + (np.arange(len(flux)) - crpix1 + 1) * pc1_1
 
         except Exception:
             return None

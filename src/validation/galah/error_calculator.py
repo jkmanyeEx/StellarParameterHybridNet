@@ -66,24 +66,36 @@ def run_real_bulk_evaluation():
     FEATURE_MEAN = _fs[0].astype(np.float32)
     FEATURE_STD  = _fs[1].astype(np.float32)
 
-    # ── 1. Rebuild validation split indices ────────────────────────────────────
-    _flux_n = np.load(flux_path, mmap_mode='r').shape[0]
-    _feat_n = np.load(feature_path, mmap_mode='r').shape[0]
+    # ── 1. Load test indices (sealed split saved by engine.py) ──────────────
+    # If test_indices.npy exists, use it (proper held-out test set).
+    # Otherwise fall back to reproducing the val split for backward compatibility.
+    test_indices_path = os.path.join(proc_dir, "test_indices.npy")
+
+    _flux_n    = np.load(flux_path,    mmap_mode='r').shape[0]
+    _feat_n    = np.load(feature_path, mmap_mode='r').shape[0]
     raw_labels = np.load(label_path)
-    n = min(_flux_n, _feat_n, raw_labels.shape[0])
+    n          = min(_flux_n, _feat_n, raw_labels.shape[0])
     raw_labels = raw_labels[:n]
 
-    valid_mask    = (raw_labels[:, 0] > -900) & \
-                    (raw_labels[:, 1] > -900) & \
-                    (raw_labels[:, 2] > -900)
-    valid_indices = np.where(valid_mask)[0]
+    if os.path.exists(test_indices_path):
+        val_idx = np.load(test_indices_path)
+        split_label = "Test"
+        print(f"  [Split] Using sealed test set: {len(val_idx)} samples")
+    else:
+        # Legacy fallback: reproduce old 80/20 val split
+        valid_mask    = (raw_labels[:, 0] > -900) & \
+                        (raw_labels[:, 1] > -900) & \
+                        (raw_labels[:, 2] > -900)
+        valid_indices = np.where(valid_mask)[0]
+        rng = np.random.default_rng(42)
+        rng.shuffle(valid_indices)
+        train_size = int(0.8 * len(valid_indices))
+        val_idx    = valid_indices[train_size:]
+        split_label = "Validation (legacy 80/20)"
+        print(f"  [Split] test_indices.npy not found — using legacy val split: "
+              f"{len(val_idx)} samples")
 
-    rng = np.random.default_rng(42)
-    rng.shuffle(valid_indices)
-    train_size = int(0.8 * len(valid_indices))
-    val_idx = valid_indices[train_size:]
-
-    print(f"  Validation samples : {len(val_idx)}")
+    print(f"  {split_label} samples : {len(val_idx)}")
 
     if not os.path.exists(weights_path):
         raise FileNotFoundError(
@@ -151,10 +163,11 @@ def run_real_bulk_evaluation():
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write("  GALAH Validation Split Evaluation Report\n")
+        f.write(f"  GALAH {split_label} Evaluation Report\n")
         f.write("=" * 70 + "\n\n")
-        f.write(f"Total validation samples : {len(val_idx)}\n")
-        f.write(f"Label normalization      : label_stats.npy\n\n")
+        f.write(f"  Evaluated samples  : {len(val_idx)}\n")
+        f.write(f"  Split type         : {split_label}\n")
+        f.write(f"  Label normalisation: label_stats.npy\n\n")
         
         f.write("▶ [SECTION 1] Performance Metrics:\n")
         for i in range(3):

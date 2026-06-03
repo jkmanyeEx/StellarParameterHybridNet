@@ -67,8 +67,16 @@ def calculate_per_line_weight_attribution(model):
 
 def calculate_eval_model_weight_ratio(model):
     """
-    Estimate Dense branch fraction of post-fusion layer L1 weight.
-    Concat order: [CNN:1216 | Dense:128] = 1344 total.
+    Compute the Dense branch's learned weight share at the first post-fusion layer
+    and compare it against the nominal architectural dimension ratio.
+
+    Architecture (MaStar):
+      CNN  branch output : 1216 D
+      Dense branch output: 128  D
+      Fusion (concat)    : 1344 D
+
+    Nominal ratio = 128 / 1344 = 9.52 %
+    Learned ratio = L1 mass of Dense-slice / total L1 mass
     """
     try:
         target = None
@@ -79,21 +87,34 @@ def calculate_eval_model_weight_ratio(model):
                 break
 
         if target is None:
-            print(f"XAI ERROR: no Linear(*, {FUSION_DIM}) found.")
-            return -1.0
+            print(f"   [XAI] ERROR: no Linear(*, {FUSION_DIM}) found in model.")
+            return -1.0, -1.0
 
         total     = np.sum(np.abs(target))
         if total == 0:
-            return 0.0
+            return 0.0, 0.0
+
         cnn_mag   = np.sum(np.abs(target[:, :CNN_BRANCH_DIM]))
         dense_mag = np.sum(np.abs(target[:, CNN_BRANCH_DIM:]))
-        print(f"   [XAI] CNN branch   weight share : {cnn_mag/total*100:.2f}%")
-        print(f"   [XAI] Dense branch weight share : {dense_mag/total*100:.2f}%")
-        return float(dense_mag / total * 100)
+
+        learned_ratio = float(dense_mag / total * 100)
+        nominal_ratio = float(DENSE_BRANCH_DIM / FUSION_DIM * 100)
+
+        print(f"   [XAI] Fusion dim          : {FUSION_DIM} D "
+              f"(CNN {CNN_BRANCH_DIM} D + Dense {DENSE_BRANCH_DIM} D)")
+        print(f"   [XAI] Nominal dim ratio   : {DENSE_BRANCH_DIM}/{FUSION_DIM} "
+              f"= {nominal_ratio:.2f}%")
+        print(f"   [XAI] CNN  branch L1 share: {cnn_mag/total*100:.2f}%")
+        print(f"   [XAI] Dense branch L1 share (learned): {learned_ratio:.2f}%")
+        print(f"   [XAI] Learned / Nominal ratio: "
+              f"{learned_ratio:.2f}% / {nominal_ratio:.2f}% "
+              f"= x{learned_ratio/nominal_ratio:.2f}")
+
+        return learned_ratio, nominal_ratio
 
     except Exception as e:
-        print(f"XAI CRASH: {e}")
-        return -1.0
+        print(f"   [XAI] ERROR in weight ratio calculation: {e}")
+        return -1.0, -1.0
 
 
 def run_xai_line_profile_analysis(num_samples=1000):
@@ -232,7 +253,7 @@ def run_xai_line_profile_analysis(num_samples=1000):
     ha_abl     = float(np.mean(mean_jac_ablated[0, (wave_grid >= 6513) & (wave_grid <= 6613)]))
     proof_r_abl = ha_abl / (bg_abl + 1e-8)
 
-    weight_ratio = calculate_eval_model_weight_ratio(model)
+    weight_ratio, nominal_ratio = calculate_eval_model_weight_ratio(model)
     per_line     = calculate_per_line_weight_attribution(model)
 
     # ── 터미널 출력 ───────────────────────────────────────────────────────────
@@ -241,7 +262,9 @@ def run_xai_line_profile_analysis(num_samples=1000):
         print(f"{name:<35} T={t:.5f}  g={g:.5f}")
     print(f"\nProof Ratio (Normal):  {proof_r:.4f}")
     print(f"Proof Ratio (Ablated): {proof_r_abl:.4f}")
-    print(f"30D branch weight:     {weight_ratio:.2f}%")
+    print(f"30D branch weight (learned)  : {weight_ratio:.2f}%")
+    print(f"30D branch dim (nominal)     : {DENSE_BRANCH_DIM}/{FUSION_DIM} = {nominal_ratio:.2f}%")
+    print(f"Learned / Nominal            : x{weight_ratio/nominal_ratio:.2f}")
     print(f"T_eff ablation shift:  {physical_mad[0]:.4f} K")
     print(f"log g ablation shift:  {physical_mad[1]:.4f} dex")
     print(f"[Fe/H] ablation shift: {physical_mad[2]:.4f} dex")
@@ -265,9 +288,21 @@ def run_xai_line_profile_analysis(num_samples=1000):
         f.write(f"Hypothesis 2 Proof Ratio: {proof_r:.4f}\n")
         f.write(f"Hypothesis 2 Proof Ratio (Ablated 30D Features): {proof_r_abl:.4f}\n\n")
         f.write("=" * 60 + "\n")
-        f.write("▶ Global Weight Attribution Architecture (Hypothesis 1)\n")
+        f.write("▶ Global Weight Attribution — Feature Branch vs. CNN Branch\n")
         f.write("=" * 60 + "\n")
-        f.write(f"   - 30D Physical Feature Layer Contribution: {weight_ratio:.4f}%\n\n")
+        f.write(f"   Architecture (MaStar):\n")
+        f.write(f"     CNN  branch output : {CNN_BRANCH_DIM} D\n")
+        f.write(f"     Dense branch output: {DENSE_BRANCH_DIM} D\n")
+        f.write(f"     Fusion (concat)    : {FUSION_DIM} D\n\n")
+        f.write(f"   Nominal dim ratio  : {DENSE_BRANCH_DIM}/{FUSION_DIM} = {nominal_ratio:.4f}%\n")
+        f.write(f"   Learned L1 ratio   : {weight_ratio:.4f}%\n")
+        f.write(f"   Learned / Nominal  : x{weight_ratio/nominal_ratio:.2f}\n")
+        f.write(f"\n   Interpretation: the Dense (physical feature) branch occupies\n")
+        if weight_ratio > nominal_ratio:
+            f.write(f"   {weight_ratio:.2f}% of post-fusion L1 weight despite contributing only\n")
+            f.write(f"   {nominal_ratio:.2f}% of dimensions — {weight_ratio/nominal_ratio:.2f}x upweighted by training.\n\n")
+        else:
+            f.write(f"   {weight_ratio:.2f}% of post-fusion L1 weight vs {nominal_ratio:.2f}% of dimensions.\n\n")
         if per_line:
             f.write("=" * 60 + "\n")
             f.write("▶ Per-Absorption-Line Weight Attribution (Dense Branch)\n")

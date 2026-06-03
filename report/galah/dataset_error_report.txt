@@ -1,0 +1,27 @@
+======================================================================
+  GALAH Test Evaluation Report
+======================================================================
+
+  Evaluated samples  : 1468
+  Split type         : Test
+  Label normalisation: label_stats.npy
+
+▶ [SECTION 1] Performance Metrics:
+   * T_eff  (K):
+     MAE            : 37.9996 K
+     RMSE           : 62.3831 K
+     Relative Error : 0.68%
+     R2 Score       : 0.9909
+
+   * log g  (dex):
+     MAE            : 0.0650 dex
+     RMSE           : 0.0988 dex
+     Relative Error : 1.95%
+     R2 Score       : 0.9848
+
+   * [Fe/H] (dex):
+     MAE            : 0.0348 dex
+     RMSE           : 0.0509 dex
+     Relative Error : 39.59%
+     R2 Score       : 0.9586
+
