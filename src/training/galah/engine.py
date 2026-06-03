@@ -4,10 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-from src.utils.mastar.config import DEVICE, BATCH_SIZE, EPOCHS, LEARNING_RATE, \
+from src.utils.galah.config import DEVICE, BATCH_SIZE, EPOCHS, LEARNING_RATE, \
                                    CPU_WORKERS_DATALOADER, print_config
-from src.data.mastar.dataset import StellarHybridDataset
-from src.models.mastar.hybrid_net import StellarParameterHybridNet
+from src.data.galah.dataset import StellarHybridDataset
+from src.models.galah.hybrid_net import StellarParameterHybridNet
 
 
 def save_loss_curve(train_losses, val_losses, save_path):
@@ -17,7 +17,7 @@ def save_loss_curve(train_losses, val_losses, save_path):
             linewidth=2.5, marker='o', markersize=3)
     ax.plot(epochs, val_losses,   label="Val MSE",   color="#ff7f0e",
             linewidth=2.5, marker='s', markersize=3)
-    ax.set_title("StellarParameterHybridNet — Loss Curve",
+    ax.set_title("StellarParameterHybridNet — Loss Curve (GALAH)",
                  fontsize=14, fontweight='bold', pad=15)
     ax.set_xlabel("Epoch", fontsize=12)
     ax.set_ylabel("MSE Loss", fontsize=12)
@@ -33,16 +33,16 @@ def main(resume=False):
     print_config()
 
     base_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-    flux_path    = os.path.join(base_dir, "data", "mastar", "processed", "X_flux_clean.npy")
-    feature_path = os.path.join(base_dir, "data", "mastar", "processed", "X_features_physical.npy")
-    label_path   = os.path.join(base_dir, "data", "mastar", "processed", "Y_labels.npy")
-    save_dir     = os.path.join(base_dir, "weights", "mastar")
-    stats_dir    = os.path.join(base_dir, "data", "mastar", "processed")
+    flux_path    = os.path.join(base_dir, "data", "galah", "processed", "X_flux_clean.npy")
+    feature_path = os.path.join(base_dir, "data", "galah", "processed", "X_features_physical.npy")
+    label_path   = os.path.join(base_dir, "data", "galah", "processed", "Y_labels.npy")
+    save_dir     = os.path.join(base_dir, "weights", "galah")
+    stats_dir    = os.path.join(base_dir, "data", "galah", "processed")
 
     # ── 1. 인덱스 먼저 분리 (split-then-normalize, leakage 방지) ───────────────
-    print("Building train/val split...")
+    print("Building train/val split for GALAH...")
 
-    # 유효 샘플 수 파악 — 세 파일의 최솟값으로 n 결정 후 valid 필터
+    # 유효 샘플 수 파악
     _flux_n    = np.load(flux_path,    mmap_mode='r').shape[0]
     _feat_n    = np.load(feature_path, mmap_mode='r').shape[0]
     raw_labels = np.load(label_path)
@@ -52,7 +52,6 @@ def main(resume=False):
     valid_mask    = (raw_labels[:, 0] > -900) & \
                     (raw_labels[:, 1] > -900) & \
                     (raw_labels[:, 2] > -900)
-    # valid_indices는 [:n] 슬라이싱 이후의 위치 — dataset.py 내부 슬라이싱과 동일
     valid_indices = np.where(valid_mask)[0]
 
     rng = np.random.default_rng(42)
@@ -62,38 +61,38 @@ def main(resume=False):
     val_idx     = valid_indices[train_size:]
     print(f"   > Train: {len(train_idx)}  Val: {len(val_idx)}")
 
-    # ── 2. train Dataset (fit_stats=True → 통계 저장, augment=True) ────────────
-    print("\nBuilding train dataset and fitting normalization stats...")
+    # ── 2. train Dataset
+    print("\nBuilding GALAH train dataset and fitting normalization stats...")
     train_dataset = StellarHybridDataset(
         flux_path, feature_path, label_path,
         indices=train_idx,
         fit_stats=True,
         stats_save_dir=stats_dir,
-        augment=True,          # Gaussian noise + continuum tilt + RV shift
+        augment=True,
     )
 
-    # ── 3. val Dataset (fit_stats=False → train 통계 재사용, augment=False) ─────
-    print("Building val dataset with train stats...")
+    # ── 3. val Dataset
+    print("Building GALAH val dataset with train stats...")
     val_dataset = StellarHybridDataset(
         flux_path, feature_path, label_path,
         indices=val_idx,
         fit_stats=False,
         feature_stats=(train_dataset.feature_mean, train_dataset.feature_std),
         label_stats=(train_dataset.label_mean,   train_dataset.label_std),
-        augment=False,         # val은 augmentation 없이 원본으로 평가
+        augment=False,
     )
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE,
-                              shuffle=True,  num_workers=CPU_WORKERS_DATALOADER,
-                              pin_memory=False, persistent_workers=True,
-                              prefetch_factor=2)
+                               shuffle=True,  num_workers=CPU_WORKERS_DATALOADER,
+                               pin_memory=False, persistent_workers=True,
+                               prefetch_factor=2)
     val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE,
-                              shuffle=False, num_workers=CPU_WORKERS_DATALOADER,
-                              pin_memory=False, persistent_workers=True,
-                              prefetch_factor=2)
+                               shuffle=False, num_workers=CPU_WORKERS_DATALOADER,
+                               pin_memory=False, persistent_workers=True,
+                               prefetch_factor=2)
 
-    # ── 4. 모델 / 옵티마이저 ──────────────────────────────────────────────────
-    model = StellarParameterHybridNet().to(DEVICE)
+    # ── 4. 모델 / 옵티마이저
+    model = StellarParameterHybridNet(use_features=True).to(DEVICE)
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(),
                                  lr=LEARNING_RATE, weight_decay=1e-4)
@@ -104,14 +103,13 @@ def main(resume=False):
     os.makedirs(save_dir, exist_ok=True)
     best_ckpt_path = os.path.join(save_dir, "stellar_hybrid_model.pth")
 
-    # ── 5. Resume (선택) ───────────────────────────────────────────────────────
+    # ── 5. Resume (선택)
     start_epoch   = 0
     best_val_loss = float('inf')
     train_losses, val_losses = [], []
 
     if resume and os.path.exists(best_ckpt_path):
         checkpoint = torch.load(best_ckpt_path, map_location=DEVICE)
-        # checkpoint가 state_dict만 저장된 경우와 full checkpoint인 경우 모두 처리
         if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
             model.load_state_dict(checkpoint['model_state'])
             optimizer.load_state_dict(checkpoint['optimizer_state'])
@@ -120,19 +118,15 @@ def main(resume=False):
             best_val_loss = checkpoint['best_val_loss']
             train_losses  = checkpoint.get('train_losses', [])
             val_losses    = checkpoint.get('val_losses', [])
-            print(f"   [Resume] Loaded full checkpoint from epoch {checkpoint['epoch']+1}")
-            print(f"   [Resume] Best val loss so far: {best_val_loss:.4f}")
+            print(f"   [Resume] Loaded GALAH checkpoint from epoch {checkpoint['epoch']+1}")
         else:
-            # state_dict만 저장된 기존 포맷 (현재 저장 방식)
             model.load_state_dict(checkpoint)
-            print(f"   [Resume] Loaded weights only (no optimizer state).")
-            print(f"   [Resume] Optimizer/scheduler reset to initial state.")
+            print(f"   [Resume] Loaded GALAH weights only.")
     elif resume:
-        print(f"   [Resume] No checkpoint found at {best_ckpt_path} — starting fresh.")
+        print(f"   [Resume] No GALAH checkpoint found — starting fresh.")
 
-    print("\nTraining Started!")
+    print("\nGALAH Training Started!")
     for epoch in range(start_epoch, EPOCHS):
-        # train
         model.train()
         running_train = 0.0
         for flux, feat, labels in train_loader:
@@ -143,7 +137,6 @@ def main(resume=False):
             optimizer.step()
             running_train += loss.item()
 
-        # val
         model.eval()
         running_val = 0.0
         with torch.no_grad():
@@ -160,7 +153,6 @@ def main(resume=False):
         train_losses.append(avg_train)
         val_losses.append(avg_val)
 
-        # best checkpoint (full checkpoint 저장 — resume 가능)
         if avg_val < best_val_loss:
             best_val_loss = avg_val
             torch.save({
@@ -180,9 +172,7 @@ def main(resume=False):
                   f"Best val loss: {best_val_loss:.4f}"
                   f"{' ★' if avg_val == best_val_loss else ''}")
 
-    print(f"\nBest val loss: {best_val_loss:.4f}")
-    print(f"Best weights saved → {best_ckpt_path}")
-
+    print(f"\nBest val loss for GALAH: {best_val_loss:.4f}")
     save_loss_curve(train_losses, val_losses, save_path=os.path.join(save_dir, "loss_curve.png"))
 
 

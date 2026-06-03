@@ -9,11 +9,11 @@ def main():
     print("               [Fe/H]   : FEH_NOAPP_MED (non-APOGEE-calibrated median)")
     print("               → SSPP 검증셋 스케일과 일치하는 광학 기반 [Fe/H] 사용\n")
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-    vac_path      = os.path.join(base_dir, "data", "raw", "mastar-goodstars-v3_1_1-v1_7_7-params-v2.fits")
-    star_ids_path = os.path.join(base_dir, "data", "processed", "star_ids.npy")
-    save_dir      = os.path.join(base_dir, "data", "processed")
+    vac_path      = os.path.join(base_dir, "data", "mastar", "raw", "mastar-goodstars-v3_1_1-v1_7_7-params-v2.fits")
+    star_ids_path = os.path.join(base_dir, "data", "mastar", "processed", "star_ids.npy")
+    save_dir      = os.path.join(base_dir, "data", "mastar", "processed")
 
     if not os.path.exists(vac_path):
         print(f"Error: VAC file not found at '{vac_path}'")

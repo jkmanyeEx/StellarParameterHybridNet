@@ -5,7 +5,7 @@ import os
 from multiprocessing import Pool, cpu_count
 
 try:
-    from src.utils.config import CPU_WORKERS_PREPROCESS
+    from src.utils.mastar.config import CPU_WORKERS_PREPROCESS
 except ImportError:
     try:
         from utils.config import CPU_WORKERS_PREPROCESS
@@ -121,8 +121,8 @@ def run_mastar_preprocessing_pipeline(goodspec_path, combspec_path=None):
           f"(goodspec {len(g_flux)} + combspec unique {X_flux.shape[0] - len(g_flux)})")
 
     out_dir = os.path.join(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-        "data", "processed"
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+        "data", "mastar", "processed"
     )
     os.makedirs(out_dir, exist_ok=True)
 
@@ -136,10 +136,11 @@ def run_mastar_preprocessing_pipeline(goodspec_path, combspec_path=None):
 
 
 if __name__ == "__main__":
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    raw_dir  = os.path.join(base_dir, "data", "raw")
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    raw_dir  = os.path.join(base_dir, "data", "mastar", "raw")
     goodspec = os.path.join(raw_dir, "mastar-goodspec-v3_1_1-v1_7_7.fits")
     combspec = os.path.join(raw_dir, "mastar-combspec-v3_1_1-v1_7_7-lsfpercent60.0.fits")
+
 
     if not os.path.exists(goodspec):
         print(f"Error: goodspec not found at {goodspec}")

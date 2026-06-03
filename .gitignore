@@ -6,12 +6,13 @@
 __pycache__
 *.pyc
 *.log
+
 *.fits
 *.fits.gz
 
 # 대용량 데이터 파일
 *.npy
 *.pth
-data/raw/
-data/processed/
-weights/
+data/
+
+scratch/

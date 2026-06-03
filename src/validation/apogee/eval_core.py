@@ -79,7 +79,7 @@ def align_wavelength_resolution(loglam, flux, target_pixel_size=4563,
         target_wave_grid = np.asarray(target_wave_grid)
     else:
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        wave_path = os.path.join(base_dir, "data", "mastar", "processed", "standard_wave.npy")
+        wave_path = os.path.join(base_dir, "data", "apogee", "processed", "standard_wave.npy")
         target_wave_grid = np.load(wave_path) if os.path.exists(wave_path) \
                            else np.linspace(3650.0, 10250.0, target_pixel_size)
 

@@ -6,11 +6,11 @@ from tqdm import tqdm
 
 from .eval_core import align_wavelength_resolution, read_sdss_spec
 from .xai_analyzer import extract_30d_features_live_eval
-from ..models.hybrid_net import StellarParameterHybridNet
+from src.models.mastar.hybrid_net import StellarParameterHybridNet
 
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
-_base_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_proc_dir    = os.path.join(_base_dir, "data", "processed")
+_base_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_proc_dir    = os.path.join(_base_dir, "data", "mastar", "processed")
 
 # 파장 그리드: 훈련 시 저장된 표준 그리드 사용
 _wave_path = os.path.join(_proc_dir, "standard_wave.npy")
@@ -162,9 +162,9 @@ def run_real_bulk_evaluation():
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"[Core Active] Compute device → {device}\n")
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    weights_path = os.path.join(base_dir, "weights", "stellar_hybrid_model.pth")
-    dataset_dir = os.path.join(base_dir, "data", "validation_dataset")
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    weights_path = os.path.join(base_dir, "weights", "mastar", "stellar_hybrid_model.pth")
+    dataset_dir = os.path.join(base_dir, "data", "mastar", "validation_dataset")
     csv_path = os.path.join(dataset_dir, "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
 
     model = StellarParameterHybridNet().to(device)
@@ -233,7 +233,7 @@ def run_real_bulk_evaluation():
               f"{rel_err[i]:>9.2f}% | {r2_str:>10}")
     print("=" * 80)
 
-    report_dir = os.path.join(base_dir, "report")
+    report_dir = os.path.join(base_dir, "report", "mastar")
     os.makedirs(report_dir, exist_ok=True)
     out_path = os.path.join(report_dir, "dataset_error_report.txt")
     

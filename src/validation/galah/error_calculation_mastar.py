@@ -67,7 +67,7 @@ def run_mastar_bulk_evaluation():
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"[Core Active] Compute device → {device}\n")
 
-    weights_path = os.path.join(_base_dir, "weights", "mastar", "stellar_hybrid_model.pth")
+    weights_path = os.path.join(_base_dir, "weights", "galah", "stellar_hybrid_model.pth")
     model = StellarParameterHybridNet().to(device)
     if os.path.exists(weights_path):
         checkpoint = torch.load(weights_path, map_location=device)
@@ -123,7 +123,7 @@ def run_mastar_bulk_evaluation():
         print(f"{parameters[i]:<20} | {mae[i]:>10.4f} | {rmse[i]:>10.4f} | {r2[i]:>10.4f}")
     print("=" * 65)
 
-    report_dir = os.path.join(_base_dir, "report", "mastar")
+    report_dir = os.path.join(_base_dir, "report", "galah")
     os.makedirs(report_dir, exist_ok=True)
     out_path = os.path.join(report_dir, "dataset_error_report_mastar.txt")
 

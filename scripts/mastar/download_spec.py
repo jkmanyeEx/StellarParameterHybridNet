@@ -1,12 +1,16 @@
 import os
+import sys
 import csv
 import time
 import requests
+from tqdm import tqdm
 
-# Resolve paths relative to project root
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-CSV_PATH  = os.path.join(BASE_DIR, "data", "validation_dataset", "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
-OUT_DIR   = os.path.join(BASE_DIR, "data", "validation_dataset")
+# Add project root to python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+CSV_PATH  = os.path.join(BASE_DIR, "data", "mastar", "validation_dataset", "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
+OUT_DIR   = os.path.join(BASE_DIR, "data", "mastar", "validation_dataset")
 BASE_URL  = "https://dr17.sdss.org/sas/dr17/sdss/spectro/redux/26/spectra"
 ALT_URL   = "https://dr17.sdss.org/sas/dr17/sdss/spectro/redux/v5_13_2/spectra"
 RETRY_MAX = 3
@@ -32,11 +36,9 @@ def download_file(url, dest_path, retries=RETRY_MAX):
                 return True
             elif r.status_code == 404:
                 return False
-            else:
-                print(f"      HTTP {r.status_code} — attempt {attempt}/{retries}")
-        except requests.RequestException as e:
-            print(f"      Network error attempt {attempt}/{retries}: {e}")
-        time.sleep(1.5 * attempt)
+        except requests.RequestException:
+            pass
+        time.sleep(1.0 * attempt)
     return False
 
 
@@ -71,46 +73,42 @@ def main():
     skip_count = 0
     fail_count = 0
 
-    for i, row in enumerate(rows, 1):
-        plate, mjd, fiberid = row["plate"], row["mjd"], row["fiberid"]
-        fname = build_filename(plate, mjd, fiberid)
-        dest  = os.path.join(OUT_DIR, fname)
+    with tqdm(total=total, desc="Downloading MaStar Validation Spectra", unit="spec") as pbar:
+        for row in rows:
+            plate, mjd, fiberid = row["plate"], row["mjd"], row["fiberid"]
+            fname = build_filename(plate, mjd, fiberid)
+            dest  = os.path.join(OUT_DIR, fname)
 
-        if os.path.exists(dest) and os.path.getsize(dest) > 10_000:
-            print(f"[{i:>3}/{total}] SKIP (exists)  {fname}")
-            skip_count += 1
-            continue
+            if os.path.exists(dest) and os.path.getsize(dest) > 10_000:
+                skip_count += 1
+                pbar.update(1)
+                continue
 
-        if os.path.exists(dest):
-            os.remove(dest)
+            if os.path.exists(dest):
+                os.remove(dest)
 
-        print(f"[{i:>3}/{total}] {fname}  "
-              f"T={row['teff']:.0f}K  logg={row['logg']:.2f}  "
-              f"[Fe/H]={row['feh']:.2f}")
+            success = False
+            for base in (BASE_URL, ALT_URL):
+                url = build_url(base, plate, fname)
+                if download_file(url, dest):
+                    ok_count += 1
+                    success = True
+                    break
 
-        success = False
-        for base in (BASE_URL, ALT_URL):
-            url = build_url(base, plate, fname)
-            if download_file(url, dest):
-                size_kb = os.path.getsize(dest) / 1024
-                print(f"      ✓  {size_kb:.0f} KB  ({url.split('/redux/')[1].split('/')[0]})")
-                ok_count += 1
-                success = True
-                break
-            else:
-                print(f"      ✗  404 at {url.split('/redux/')[1].split('/')[0]}, trying next...")
+            if not success:
+                fail_count += 1
 
-        if not success:
-            print(f"      ✗  All URLs failed — skipping {fname}")
-            fail_count += 1
-
-        time.sleep(DELAY_SEC)
+            time.sleep(DELAY_SEC)
+            pbar.update(1)
 
     print("\n" + "=" * 55)
+    print("MASTAR VALIDATION DOWNLOAD SUMMARY")
+    print("=" * 55)
     print(f"Downloaded : {ok_count}")
     print(f"Skipped    : {skip_count}  (already existed)")
     print(f"Failed     : {fail_count}")
     print(f"Saved to   : {os.path.abspath(OUT_DIR)}")
+    print("=" * 55)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ The repository is structured into modular components:
     * [preprocess_flux.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/preprocess_flux.py): Reads raw spectra, applies pixel quality masking, and performs continuum normalization via a 201-pixel median filter.
     * [extract_features.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_features.py): Fits Gaussian profiles to 10 critical absorption lines to generate 30-dimensional physical feature vectors.
     * [extract_labels.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/extract_labels.py): Extracts catalog target values ($T_{\text{eff}}$, $\log g$, $[\text{Fe}/\text{H}]$) and aligns them to the spectrum index sequence.
-    * [dataset.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/dataset.py): PyTorch `Dataset` that slices, normalizes, and packages data.
+    * [dataset.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/data/dataset.py): Configurable dataset factory (`get_dataset`) and class definitions supporting SDSS MaStar (`StellarHybridDataset`), GALAH DR4 (`GalahDataset`), and APOGEE DR17 (`ApogeeDataset`).
+
   * **[models/](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/)**: Modular neural network layers.
     * [hybrid_net.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/hybrid_net.py): Main [StellarParameterHybridNet](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/hybrid_net.py) assembly.
     * [cnn_branch.py](file:///Users/devmeko/Documents/KSA/3rdSem/GenAstro/TermProject/TermProject/src/models/cnn_branch.py): 1D CNN with Residual blocks (`ResBlock1D`) and Adaptive Average Pooling to analyze raw 1D flux.
@@ -84,24 +85,33 @@ python src/data/extract_labels.py
 * **Output**: Target parameter label matrix (`Y_labels.npy`) in `data/processed/`
 
 ### 5. Neural Network Training
-Triggers the dual-stream optimization run, normalizes label scaling to avoid mean collapse, and exports final weights and loss plots:
+Triggers the training run, normalizes label scaling to avoid mean collapse, and exports final weights and loss plots. You can select the target survey using the `--survey` argument (options: `mastar`, `galah`, `apogee`):
 ```bash
-python scripts/train.py
+# Default MaStar training (Dual-Stream):
+python scripts/train.py --survey mastar
+
+# GALAH training (Single-Stream with 4-Arm CNN):
+python scripts/train.py --survey galah
 ```
-* **Input**: Processed matrices in `data/processed/`
-* **Output**: Weights checkpoint and convergence plot in `weights/`
+* **Input**: Processed matrices in `data/processed/` matching the configuration parameters in `src/utils/config.py`
+* **Output**: Survey-specific weights (e.g. `weights/galah_hybrid_model.pth`) and convergence loss plots in `weights/`
 
 ### 6. Validation & Metric Calibrations
-Computes uncalibrated bulk MAE/RMSE/$R^2$ scores and fits linear regressions mapping outputs back to physical domains:
-* To evaluate against real SDSS spec FITS:
+Computes uncalibrated bulk MAE/RMSE/$R^2$ scores and writes reports to `report/`. Supports validation set evaluations via the `--survey` flag:
+* To evaluate MaStar against real SDSS spec FITS (cross-domain):
   ```bash
-  python scripts/evaluate.py
+  python scripts/evaluate.py --survey mastar
+  ```
+* To run evaluation on the validation split of other surveys (e.g., GALAH):
+  ```bash
+  python scripts/evaluate.py --survey galah
   ```
 * To run cross-validation against MaStar validation folds:
   ```bash
   python scripts/evaluate_mastar.py
   ```
-* **Output**: Performance reports written to `report/`
+* **Output**: Performance reports written to `report/` (e.g. `report/galah_validation_report.txt`)
+
 
 ### 7. Explainable AI Sensitivity Mapping
 Runs backpropagation to output cumulative Jacobian gradients ($\partial \log g / \partial \lambda$) and zero-ablation output shifts:
@@ -126,45 +136,40 @@ Launches a Tkinter-based user interface to interactively browse stellar records,
 
 ## Model Architecture
 
-`StellarParameterHybridNet` fuses data-driven representation learning with domain-specific stellar astrophysics knowledge.
+`StellarParameterHybridNet` features a highly configurable architecture capable of handling multiple stellar surveys. It dynamically routes spectral inputs into either **Single-Arm** or **Multi-Arm 1D CNN streams** based on the survey channel count (1 for MaStar, 3 for APOGEE chips, and 4 for GALAH bands), and can combine them with a physical feature Dense branch (Dual-Stream) or run as a pure data-driven pipeline (Single-Stream).
 
 ```mermaid
 graph TD
     %% Input Layer
-    InFlux[Raw 1D Flux Spectrum <br> 4563 Pixels] --> CNNBranch[1D CNN Branch]
-    InFeat[30D Physical Feature Vector <br> EW, FWHM, Depth of 10 Lines] --> DenseBranch[Dense Branch]
+    InFlux[Input Spectral Flux] --> ArmSplit{Survey?}
+    ArmSplit -->|MaStar| SingleArm[1D Flux Spectrum <br> 1x4563 px]
+    ArmSplit -->|APOGEE| TriArm[3 Detector Chips <br> 3x2800 px]
+    ArmSplit -->|GALAH| QuadArm[4 Spectral Bands <br> 4x4000 px]
     
-    %% CNN Branch Detail
-    subgraph 1D CNN Stream
-        CNNBranch --> Conv1[Conv1D + ReLU + MaxPool1d]
-        Conv1 --> Res1[ResBlock1D 32 ch]
-        Res1 --> Conv2[Conv1D + ReLU + MaxPool1d]
-        Conv2 --> Res2[ResBlock1D 64 ch]
-        Res2 --> AvgPool[AdaptiveAvgPool1d]
-        AvgPool --> Flat[Flatten <br> 1216D Latent Vector]
-    end
+    %% CNN Branch
+    SingleArm --> CNN_MaStar[Standard 1D CNN Branch]
+    TriArm --> CNN_Apogee[3-Arm CNN Stem Encoder]
+    QuadArm --> CNN_Galah[4-Arm CNN Stem Encoder]
     
-    %% Feature Branch Detail
-    subgraph Physical Feature Stream
-        DenseBranch --> FC1[Linear + LayerNorm + GELU]
-        FC1 --> FC2[Linear + LayerNorm + GELU]
-        FC2 --> FC3[Linear + LayerNorm + GELU <br> 128D Latent Vector]
-    end
+    %% CNN Outputs
+    CNN_MaStar --> FlatFlux[Flux Latent Representation]
+    CNN_Apogee --> FlatFlux
+    CNN_Galah --> FlatFlux
     
-    %% Knowledge Fusion & Attention
-    Flat --> Concat[Knowledge Fusion Concatenation <br> 1344D Latent Vector]
-    FC3 --> Concat
+    %% Physical Branch
+    InFeat[Physical Feature Vector <br> e.g. 30D Gaussian fits] -->|If feature_dim > 0| DenseBranch[Dense Branch MLP <br> 128D output]
     
-    subgraph Output Network
-        Concat --> LN1[LayerNorm]
-        LN1 --> CMA[Cross-Modal Attention Gating]
-        CMA --> MLP[Linear + LayerNorm + GELU]
-        MLP --> OutProj[Linear Projection]
-    end
+    %% Knowledge Fusion
+    FlatFlux --> Fusion{Fusion Mode}
+    DenseBranch -.->|Dual-Stream| Fusion
     
-    %% Predictions
-    OutProj --> Predictions[Estimated Parameters <br> T_eff, log g, Fe/H]
+    %% Output
+    Fusion --> LN1[LayerNorm]
+    LN1 --> CMA[Cross-Modal Attention Gating]
+    CMA --> MLP[MLP Projection Head]
+    MLP --> Predictions[Atmospheric Parameters <br> T_eff, logg, Fe/H]
 ```
+
 
 ### Dual-Stream Composition
 1. **CNN Stream**: Learns abstract representation features from the continuum-normalized spectrum. Uses a deep convolutional framework featuring 1D residual blocks (`ResBlock1D`) to capture localized absorption profiles.

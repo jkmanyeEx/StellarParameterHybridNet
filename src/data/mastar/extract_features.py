@@ -3,7 +3,7 @@ from scipy.optimize import curve_fit
 import os
 
 try:
-    from src.utils.config import CPU_WORKERS_PREPROCESS
+    from src.utils.mastar.config import CPU_WORKERS_PREPROCESS
 except ImportError:
     try:
         from utils.config import CPU_WORKERS_PREPROCESS
@@ -105,10 +105,10 @@ def main():
     from tqdm import tqdm
 
     print("Loading exported data...")
-    base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    flux_path = os.path.join(base_dir, "data", "processed", "X_flux_clean.npy")
-    wave_path = os.path.join(base_dir, "data", "processed", "standard_wave.npy")
-    out_path  = os.path.join(base_dir, "data", "processed", "X_features_physical.npy")
+    base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    flux_path = os.path.join(base_dir, "data", "mastar", "processed", "X_flux_clean.npy")
+    wave_path = os.path.join(base_dir, "data", "mastar", "processed", "standard_wave.npy")
+    out_path  = os.path.join(base_dir, "data", "mastar", "processed", "X_features_physical.npy")
 
     if not os.path.exists(flux_path):
         raise FileNotFoundError(f"No flux file found at: {flux_path}")

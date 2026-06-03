@@ -2,9 +2,9 @@ import os
 import sys
 import argparse
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.training.engine import main
+from src.training.mastar.engine import main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -3,13 +3,13 @@ import sys
 import numpy as np
 from scipy.ndimage import median_filter
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from src.validation.eval_core import align_wavelength_resolution, read_sdss_spec
-
 # Resolve paths relative to project root
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MASTAR_FLUX = os.path.join(BASE_DIR, "data", "processed", "X_flux_telluric.npy")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from src.validation.mastar.eval_core import align_wavelength_resolution, read_sdss_spec
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+MASTAR_FLUX = os.path.join(BASE_DIR, "data", "mastar", "processed", "X_flux_clean.npy")
 
 def main():
     if not os.path.exists(MASTAR_FLUX):
@@ -28,14 +28,12 @@ def main():
     print(f"  → continuum-normalized: values oscillate around ~1.0")
 
     print("\n" + "=" * 70)
-    print("SDSS spec EVAL flux (current eval_core.py output)")
+    print("SDSS spec EVAL flux")
     print("=" * 70)
 
-    dataset_dir = os.path.join(BASE_DIR, "data", "validation_dataset")
-    sample = os.path.join(dataset_dir, "spec-1660-53230-0002.fits")
-    if not os.path.exists(sample):
-        cands = [f for f in os.listdir(dataset_dir) if f.endswith(".fits")] if os.path.isdir(dataset_dir) else []
-        sample = os.path.join(dataset_dir, cands[0]) if cands else None
+    dataset_dir = os.path.join(BASE_DIR, "data", "mastar", "validation_dataset")
+    cands = [f for f in os.listdir(dataset_dir) if f.endswith(".fits")] if os.path.isdir(dataset_dir) else []
+    sample = os.path.join(dataset_dir, cands[0]) if cands else None
 
     if sample and os.path.exists(sample):
         flux, loglam, truth = read_sdss_spec(sample)
@@ -43,7 +41,7 @@ def main():
         print(f"  file          : {os.path.basename(sample)}")
         print(f"  raw flux min/max : {flux.min():.3f} / {flux.max():.3f}")
         print(f"  raw flux mean    : {flux.mean():.3f}")
-        print(f"  → RAW physical flux (1e-17 erg/s/cm2/A units), NOT normalized!")
+        print(f"  → RAW physical flux, NOT normalized!")
         print(f"  → values are huge/arbitrary, NOT oscillating around 1.0")
 
         print("\n" + "=" * 70)

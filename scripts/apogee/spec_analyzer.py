@@ -1,23 +1,23 @@
 import os
+import sys
 from astropy.io import fits
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-dataset_dir = os.path.join(BASE_DIR, "data", "validation_dataset")
-path = os.path.join(dataset_dir, "spec-3615-55179-0010.fits")
+# Add project root to python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-if not os.path.exists(path):
-    # Try finding any fits file
-    cands = [f for f in os.listdir(dataset_dir) if f.endswith(".fits")] if os.path.isdir(dataset_dir) else []
-    if cands:
-        path = os.path.join(dataset_dir, cands[0])
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+dataset_dir = os.path.join(BASE_DIR, "data", "apogee", "validation_dataset")
 
-if os.path.exists(path):
+cands = [f for f in os.listdir(dataset_dir) if f.endswith(".fits")] if os.path.isdir(dataset_dir) else []
+path = os.path.join(dataset_dir, cands[0]) if cands else None
+
+if path and os.path.exists(path):
     print(f"Analyzing: {path}")
     with fits.open(path) as hdul:
         hdul.info()
         print("\n--- HDU 0 Header keys ---")
         for k, v in hdul[0].header.items():
-            if any(x in k.upper() for x in ['RA', 'DEC', 'PLUG', 'WAVE', 'FLUX']):
+            if any(x in k.upper() for x in ['RA', 'DEC', 'WAVE', 'FLUX', 'CRVAL1', 'CDELT1']):
                 print(f"  {k}: {v}")
         for i, hdu in enumerate(hdul):
             if hdu.data is not None:

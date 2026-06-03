@@ -4,10 +4,10 @@ import numpy as np
 from astropy.io import fits
 
 # Resolve paths relative to project root
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-LABEL_PATH   = os.path.join(BASE_DIR, "data", "processed", "Y_labels.npy")
-FLUX_PATH    = os.path.join(BASE_DIR, "data", "processed", "X_flux_telluric.npy")
-FEATURE_PATH = os.path.join(BASE_DIR, "data", "processed", "X_features_physical.npy")
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+LABEL_PATH   = os.path.join(BASE_DIR, "data", "mastar", "processed", "Y_labels.npy")
+FLUX_PATH    = os.path.join(BASE_DIR, "data", "mastar", "processed", "X_flux_clean.npy")
+FEATURE_PATH = os.path.join(BASE_DIR, "data", "mastar", "processed", "X_features_physical.npy")
 
 def main():
     if not os.path.exists(LABEL_PATH):
@@ -24,7 +24,7 @@ def main():
     mask = (labels[:, 0] > -900) & (labels[:, 1] > -900) & (labels[:, 2] > -900)
     clean = labels[mask]
 
-    print("=== TRUE TRAINING LABEL STATS (copy these into error_calculator.py) ===")
+    print("=== TRUE MASTAR TRAINING LABEL STATS (copy these into error_calculator.py) ===")
     print(f"Clean samples: {clean.shape[0]}")
     print(f"LABEL_MEAN = np.array([{np.mean(clean,axis=0)[0]:.6f}, "
           f"{np.mean(clean,axis=0)[1]:.6f}, {np.mean(clean,axis=0)[2]:.6f}])")
@@ -32,12 +32,12 @@ def main():
           f"{np.std(clean,axis=0)[1]:.6f}, {np.std(clean,axis=0)[2]:.6f}])")
 
     clean_feat = features[mask]
-    print("\n=== TRUE 30D FEATURE STATS ===")
+    print(f"\n=== TRUE MASTAR {clean_feat.shape[1]}D FEATURE STATS ===")
     print("FEATURE_MEAN =", np.array2string(np.mean(clean_feat, axis=0), precision=6, separator=', '))
     print("FEATURE_STD  =", np.array2string(np.std(clean_feat, axis=0) + 1e-8, precision=6, separator=', '))
 
     print("\n=== SPEC FITS GROUND-TRUTH AVAILABILITY ===")
-    dataset_dir = os.path.join(BASE_DIR, "data", "validation_dataset")
+    dataset_dir = os.path.join(BASE_DIR, "data", "mastar", "validation_dataset")
     for f_name in ["spec-3615-55179-0010.fits",
                    "spec-3615-55179-0022.fits",
                    "spec-3615-55179-0045.fits"]:
