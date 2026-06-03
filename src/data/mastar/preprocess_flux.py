@@ -119,6 +119,13 @@ def run_mastar_preprocessing_pipeline(goodspec_path, combspec_path=None):
     X_flux = np.array(all_flux, dtype=np.float32)
     print(f"\nTotal combined spectra: {X_flux.shape[0]} "
           f"(goodspec {len(g_flux)} + combspec unique {X_flux.shape[0] - len(g_flux)})")
+    print("\n[WARNING] goodspec contains per-visit spectra: the same star may appear"
+          " multiple times under different visit rows (same MANGAID, different rows).\n"
+          "   extract_labels.py assigns the same VAC label to all visits of a star.\n"
+          "   If the train/val split separates visits of the same star, label\n"
+          "   information leaks across the split boundary.\n"
+          "   Recommendation: group by unique MANGAID before splitting, or use\n"
+          "   combspec-only to guarantee one-row-per-star.")
 
     out_dir = os.path.join(
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),

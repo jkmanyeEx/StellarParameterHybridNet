@@ -8,41 +8,44 @@ from .eval_core import align_wavelength_resolution, read_sdss_spec
 from .xai_analyzer import extract_30d_features_live_eval
 from src.models.mastar.hybrid_net import StellarParameterHybridNet
 
-# ── 경로 설정 ─────────────────────────────────────────────────────────────────
-_base_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-_proc_dir    = os.path.join(_base_dir, "data", "mastar", "processed")
+# ── Paths ─────────────────────────────────────────────────────────────────────
+_base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_proc_dir = os.path.join(_base_dir, "data", "mastar", "processed")
 
-# 파장 그리드: 훈련 시 저장된 표준 그리드 사용
+# ── Wave grid ─────────────────────────────────────────────────────────────────
 _wave_path = os.path.join(_proc_dir, "standard_wave.npy")
-WAVE_GRID  = np.load(_wave_path) if os.path.exists(_wave_path) \
-             else np.linspace(3650.0, 10250.0, 4563)
+if not os.path.exists(_wave_path):
+    raise FileNotFoundError(
+        f"MaStar standard_wave.npy not found at: {_wave_path}\n"
+        "Execute src/data/mastar/preprocess_flux.py first."
+    )
+WAVE_GRID = np.load(_wave_path)
 
-# ── 정규화 통계: 재학습 시 자동 갱신되는 파일에서 로드 ─────────────────────────
-# engine.py가 훈련 split에서 fit한 통계를 저장 → 하드코딩 값과 불일치 방지
+# ── Normalisation statistics ──────────────────────────────────────────────────
 _label_stats_path   = os.path.join(_proc_dir, "label_stats.npy")
 _feature_stats_path = os.path.join(_proc_dir, "feature_stats.npy")
 
-if os.path.exists(_label_stats_path):
-    _ls = np.load(_label_stats_path)          # shape (2, 3): [mean, std]
-    LABEL_MEAN = _ls[0].astype(np.float32)
-    LABEL_STD  = _ls[1].astype(np.float32)
-    print(f"[eval] label_stats loaded: mean={LABEL_MEAN}, std={LABEL_STD}")
-else:
+if not os.path.exists(_label_stats_path):
     raise FileNotFoundError(
-        f"label_stats.npy not found at {_label_stats_path}.\n"
-        "Run scripts/train.py first to generate normalization stats."
+        f"label_stats.npy not found at: {_label_stats_path}\n"
+        "Execute the MaStar training pipeline first."
+    )
+if not os.path.exists(_feature_stats_path):
+    raise FileNotFoundError(
+        f"feature_stats.npy not found at: {_feature_stats_path}\n"
+        "Execute the MaStar training pipeline first."
     )
 
-if os.path.exists(_feature_stats_path):
-    _fs = np.load(_feature_stats_path)        # shape (2, 30): [mean, std]
-    FEATURE_MEAN = _fs[0].astype(np.float32)
-    FEATURE_STD  = _fs[1].astype(np.float32)
-    print(f"[eval] feature_stats loaded.")
-else:
-    raise FileNotFoundError(
-        f"feature_stats.npy not found at {_feature_stats_path}.\n"
-        "Run scripts/train.py first to generate normalization stats."
-    )
+_ls = np.load(_label_stats_path)
+LABEL_MEAN = _ls[0].astype(np.float32)
+LABEL_STD  = _ls[1].astype(np.float32)
+print(f"[MaStar Eval] Label statistics loaded — "
+      f"T_eff mean={LABEL_MEAN[0]:.1f} K, std={LABEL_STD[0]:.1f} K")
+
+_fs = np.load(_feature_stats_path)
+FEATURE_MEAN = _fs[0].astype(np.float32)
+FEATURE_STD  = _fs[1].astype(np.float32)
+print(f"[MaStar Eval] Feature statistics loaded — feature dim={FEATURE_MEAN.shape[0]}")
 
 
 def read_csv(csv_path):
@@ -72,24 +75,32 @@ def collect_spec_fits_files(directory):
 
 
 def calculate_statistical_metrics(y_true, y_pred):
-    mae = np.mean(np.abs(y_true - y_pred), axis=0)
+    mae  = np.mean(np.abs(y_true - y_pred), axis=0)
     rmse = np.sqrt(np.mean((y_true - y_pred) ** 2, axis=0))
 
     ss_res = np.sum((y_true - y_pred) ** 2, axis=0)
     ss_tot = np.sum((y_true - np.mean(y_true, axis=0)) ** 2, axis=0)
     r2 = 1.0 - (ss_res / (ss_tot + 1e-8))
 
-    rel_teff = np.mean(np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)) * 100
+    rel_teff = np.mean(
+        np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)
+    ) * 100
 
     logg_true, logg_pred = y_true[:, 1], y_pred[:, 1]
     logg_safe = np.abs(logg_true) > 0.1
-    rel_logg = np.mean(np.abs(logg_true[logg_safe] - logg_pred[logg_safe]) / np.abs(logg_true[logg_safe])) * 100 \
-               if np.any(logg_safe) else 0.0
+    rel_logg = (
+        np.mean(np.abs(logg_true[logg_safe] - logg_pred[logg_safe])
+                / np.abs(logg_true[logg_safe])) * 100
+        if np.any(logg_safe) else 0.0
+    )
 
     feh_true, feh_pred = y_true[:, 2], y_pred[:, 2]
-    safe_mask = np.abs(feh_true) > 0.01
-    rel_feh = np.mean(np.abs(feh_true[safe_mask] - feh_pred[safe_mask]) / np.abs(feh_true[safe_mask])) * 100 \
-              if np.any(safe_mask) else 0.0
+    feh_safe = np.abs(feh_true) > 0.01
+    rel_feh = (
+        np.mean(np.abs(feh_true[feh_safe] - feh_pred[feh_safe])
+                / np.abs(feh_true[feh_safe])) * 100
+        if np.any(feh_safe) else 0.0
+    )
 
     return mae, rmse, r2, np.array([rel_teff, rel_logg, rel_feh])
 
@@ -97,108 +108,119 @@ def calculate_statistical_metrics(y_true, y_pred):
 def load_spectra_from_fits_list(file_paths, csv_path, dataset_dir):
     try:
         csv_rows = read_csv(csv_path)
-        truth_dict = {f"{r['plate']}-{r['mjd']}-{r['fiberid']:04d}": r for r in csv_rows}
+        truth_dict = {
+            f"{r['plate']}-{r['mjd']}-{r['fiberid']:04d}": r for r in csv_rows
+        }
     except Exception as e:
-        print(f"   [ERR] Could not load CSV catalog: {e}")
-        return np.array([]), np.array([]), []
+        raise RuntimeError(f"Failed to load CSV catalog from {csv_path}: {e}")
 
-    all_flux, all_truth = [], []
-    valid_paths         = []
+    all_flux, all_truth, valid_paths = [], [], []
 
-    print(f"Scanning {len(file_paths)} spec FITS file(s) in {dataset_dir}/ ...")
+    print(f"[MaStar Eval] Scanning {len(file_paths)} FITS files in: {dataset_dir}")
 
     for path in file_paths:
-        base = os.path.basename(path)
-        
+        base  = os.path.basename(path)
         parts = base.replace(".fits", "").split("-")
         if len(parts) != 4 or parts[0] != "spec":
             continue
         key = f"{int(parts[1])}-{int(parts[2])}-{int(parts[3]):04d}"
-        
+
         if key not in truth_dict:
-            print(f"   [SKIP]  {base}: Not found in CSV catalog.")
+            print(f"   [SKIP] {base}: identifier not found in CSV catalog.")
             continue
-            
+
         csv_truth = truth_dict[key]
-        truth = {'TEFF': csv_truth['teff'], 'LOGG': csv_truth['logg'], 'FEH': csv_truth['feh']}
+        truth = {
+            "TEFF": csv_truth["teff"],
+            "LOGG": csv_truth["logg"],
+            "FEH":  csv_truth["feh"],
+        }
 
         try:
             flux, loglam, is_star = read_sdss_spec(path)
         except Exception as e:
-            print(f"   [ERR]   {base}: {e}")
+            print(f"   [SKIP] {base}: FITS read error — {e}")
             continue
 
         if not is_star:
             continue
 
         aligned = align_wavelength_resolution(loglam, flux,
-                                               target_pixel_size=4563,
-                                               target_wave_grid=WAVE_GRID)
+                                              target_pixel_size=4563,
+                                              target_wave_grid=WAVE_GRID)
         if aligned is None:
-            print(f"   [SKIP]  {base}: flux alignment failed.")
+            print(f"   [SKIP] {base}: wavelength alignment failed.")
             continue
 
-        print(f"   [OK]    {base}  "
-              f"T={truth['TEFF']:.0f}K  "
-              f"logg={truth['LOGG']:.2f}  "
+        print(f"   [OK]   {base}  "
+              f"T_eff={truth['TEFF']:.0f} K  "
+              f"log g={truth['LOGG']:.2f}  "
               f"[Fe/H]={truth['FEH']:.2f}")
 
         all_flux.append(aligned[0])
-        all_truth.append([truth['TEFF'], truth['LOGG'], truth['FEH']])
+        all_truth.append([truth["TEFF"], truth["LOGG"], truth["FEH"]])
         valid_paths.append(path)
 
     if not all_flux:
         raise RuntimeError(
-            f"No valid STAR samples found in {dataset_dir}/.\n"
-            "Run scripts/download_spec.py first to populate the dataset directory."
+            f"No valid stellar spectra found in: {dataset_dir}\n"
+            "Execute scripts/mastar/download_spec.py to populate the dataset."
         )
 
-    return (np.array(all_flux,  dtype=np.float32),
-            np.array(all_truth, dtype=np.float32),
-            valid_paths)
+    return (
+        np.array(all_flux,  dtype=np.float32),
+        np.array(all_truth, dtype=np.float32),
+        valid_paths,
+    )
 
 
 def run_real_bulk_evaluation():
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"[Core Active] Compute device → {device}\n")
+    print(f"\n{'='*70}")
+    print("  MaStar Cross-Domain Evaluation: SDSS DR17 Spectra")
+    print(f"{'='*70}")
+    print(f"  Compute device : {device}")
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    base_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     weights_path = os.path.join(base_dir, "weights", "mastar", "stellar_hybrid_model.pth")
-    dataset_dir = os.path.join(base_dir, "data", "mastar", "validation_dataset")
-    csv_path = os.path.join(dataset_dir, "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
+    dataset_dir  = os.path.join(base_dir, "data", "mastar", "validation_dataset")
+    csv_path     = os.path.join(dataset_dir, "Skyserver_SQL6_1_2026 10_51_26 PM.csv")
+
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(
+            f"Model weights not found at: {weights_path}\n"
+            "Execute the MaStar training pipeline first."
+        )
 
     model = StellarParameterHybridNet().to(device)
-    if os.path.exists(weights_path):
-        checkpoint = torch.load(weights_path, map_location=device)
-        if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
-            model.load_state_dict(checkpoint['model_state'])
-        else:
-            model.load_state_dict(checkpoint)
-        print(f"   [Weights] Loaded from {weights_path}")
+    checkpoint = torch.load(weights_path, map_location=device)
+    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+        model.load_state_dict(checkpoint["model_state"])
     else:
-        print(f"   [WARN]  Weights not found — using random init.")
+        model.load_state_dict(checkpoint)
+    print(f"  Model checkpoint : {weights_path}")
     model.eval()
 
     all_spec_files = collect_spec_fits_files(dataset_dir)
     if not all_spec_files:
-        print(f"[Error] No spec-*.fits files found in {dataset_dir}/")
-        print("        Run:  python scripts/download_spec.py")
-        return
+        raise FileNotFoundError(
+            f"No spec-*.fits files found in: {dataset_dir}\n"
+            "Execute scripts/mastar/download_spec.py first."
+        )
 
-    print(f"Found {len(all_spec_files)} spec FITS file(s) in {dataset_dir}/\n")
-
-    X_FLUX_ALL, Y_TRUE_ALL, valid_paths = load_spectra_from_fits_list(all_spec_files, csv_path, dataset_dir)
+    X_FLUX_ALL, Y_TRUE_ALL, valid_paths = load_spectra_from_fits_list(
+        all_spec_files, csv_path, dataset_dir
+    )
     total = len(X_FLUX_ALL)
-    print(f"\nTotal valid STAR samples: {total}\n")
+    print(f"\n  Valid stellar samples : {total}\n")
 
     if total < 3:
-        print(f"⚠  Only {total} sample(s) — R² will be unreliable. "
-              "Run scripts/download_spec.py to get more files.\n")
+        print(f"  [NOTE] Only {total} sample(s) available. "
+              "R² scores are unreliable with fewer than 3 samples.")
 
     pred_list = []
     for idx in tqdm(range(total), desc="Inference"):
-        raw_flux = X_FLUX_ALL[idx].reshape(1, -1)
-
+        raw_flux  = X_FLUX_ALL[idx].reshape(1, -1)
         f_mean    = np.mean(raw_flux)
         f_std     = np.std(raw_flux) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
@@ -212,59 +234,57 @@ def run_real_bulk_evaluation():
         with torch.no_grad():
             norm_pred = model(tensor_flux, tensor_feat).cpu().numpy()[0]
 
-        real_pred = norm_pred * LABEL_STD + LABEL_MEAN
-        pred_list.append(real_pred)
+        pred_list.append(norm_pred * LABEL_STD + LABEL_MEAN)
 
     Y_PRED_ALL = np.array(pred_list)
-
     mae, rmse, r2, rel_err = calculate_statistical_metrics(Y_TRUE_ALL, Y_PRED_ALL)
-    
-    parameters = ["T_eff  (K)", "log g  (dex)", "[Fe/H] (dex)"]
-    units      = ["K",          "dex",          "dex"]
 
-    print("\n" + "=" * 80)
-    print(" RAW INFERENCE PERFORMANCE (Cross-Domain)")
-    print("=" * 80)
-    print(f"{'Parameter':<20} | {'MAE':>10} | {'RMSE':>10} | {'Rel Err':>10} | {'R2':>10}")
-    print("-" * 80)
+    parameters = ["T_eff  (K)", "log g  (dex)", "[Fe/H] (dex)"]
+    units      = ["K", "dex", "dex"]
+
+    print(f"\n{'='*80}")
+    print("  Cross-Domain Evaluation Performance — MaStar Model on SDSS DR17")
+    print(f"{'='*80}")
+    print(f"  {'Parameter':<20} | {'MAE':>10} | {'RMSE':>10} | "
+          f"{'Rel. Error':>10} | {'R²':>10}")
+    print(f"  {'-'*76}")
     for i in range(3):
         r2_str = f"{r2[i]:.4f}" if total > 1 else "N/A"
-        print(f"{parameters[i]:<20} | {mae[i]:>10.3f} | {rmse[i]:>10.3f} | "
+        print(f"  {parameters[i]:<20} | {mae[i]:>10.3f} | {rmse[i]:>10.3f} | "
               f"{rel_err[i]:>9.2f}% | {r2_str:>10}")
-    print("=" * 80)
+    print(f"{'='*80}\n")
 
     report_dir = os.path.join(base_dir, "report", "mastar")
     os.makedirs(report_dir, exist_ok=True)
     out_path = os.path.join(report_dir, "dataset_error_report.txt")
-    
+
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write("  SDSS DR17 Real Spec FITS — Evaluation Report\n")
+        f.write("  Cross-Domain Evaluation: MaStar Model on SDSS DR17 Spectra\n")
         f.write("=" * 70 + "\n\n")
-        f.write(f"Total valid STAR samples : {total}\n")
-        f.write(f"Ground truth source      : SSPP CSV (*adop)\n")
-        f.write(f"Label normalization      : label_stats.npy (train split)\n\n")
-        
-        f.write("▶ [SECTION 1] Raw Performance (Cross-Domain):\n")
+        f.write(f"  Valid stellar samples  : {total}\n")
+        f.write(f"  Ground truth source    : SDSS SSPP (*adop parameters)\n")
+        f.write(f"  Label normalisation    : label_stats.npy (training split)\n\n")
+        f.write("  Performance Metrics:\n")
         for i in range(3):
             r2_str = f"{r2[i]:.4f}" if total > 1 else "N/A"
-            f.write(f"   * {parameters[i]}:\n")
-            f.write(f"     MAE            : {mae[i]:.4f} {units[i]}\n")
-            f.write(f"     RMSE           : {rmse[i]:.4f} {units[i]}\n")
-            f.write(f"     Relative Error : {rel_err[i]:.2f}%\n")
-            f.write(f"     R2 Score       : {r2_str}\n\n")
-            
+            f.write(f"    {parameters[i]}:\n")
+            f.write(f"      MAE            : {mae[i]:.4f} {units[i]}\n")
+            f.write(f"      RMSE           : {rmse[i]:.4f} {units[i]}\n")
+            f.write(f"      Relative Error : {rel_err[i]:.2f}%\n")
+            f.write(f"      R²             : {r2_str}\n\n")
+
         if total <= 25:
-            f.write("\nPer-sample detail:\n")
+            f.write("  Per-sample results:\n")
             names = ["T_eff", "log g", "[Fe/H]"]
             for i in range(total):
-                f.write(f"  {os.path.basename(valid_paths[i])}\n")
+                f.write(f"    {os.path.basename(valid_paths[i])}\n")
                 for j in range(3):
-                    f.write(f"    {names[j]:6s}  "
+                    f.write(f"      {names[j]:6s}  "
                             f"true={Y_TRUE_ALL[i,j]:8.3f}  "
                             f"pred={Y_PRED_ALL[i,j]:8.3f}\n")
 
-    print(f"\nReport saved → {out_path}")
+    print(f"  Report saved to: {out_path}")
 
 
 if __name__ == "__main__":

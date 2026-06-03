@@ -8,20 +8,20 @@ Label normalization      : label_stats.npy (train split)
 
 ▶ [SECTION 1] Raw Performance (Cross-Domain):
    * T_eff  (K):
-     MAE            : 238.9350 K
-     RMSE           : 345.3762 K
-     Relative Error : 4.57%
-     R2 Score       : 0.7040
+     MAE            : 225.1130 K
+     RMSE           : 455.3376 K
+     Relative Error : 4.26%
+     R2 Score       : 0.4856
 
    * log g  (dex):
-     MAE            : 0.6036 dex
-     RMSE           : 0.7212 dex
-     Relative Error : 15.61%
-     R2 Score       : -3.3543
+     MAE            : 0.5972 dex
+     RMSE           : 0.7322 dex
+     Relative Error : 15.31%
+     R2 Score       : -3.4883
 
    * [Fe/H] (dex):
-     MAE            : 0.2275 dex
-     RMSE           : 0.3262 dex
-     Relative Error : 79.23%
-     R2 Score       : 0.1290
+     MAE            : 0.2109 dex
+     RMSE           : 0.3122 dex
+     Relative Error : 67.63%
+     R2 Score       : 0.2021
 

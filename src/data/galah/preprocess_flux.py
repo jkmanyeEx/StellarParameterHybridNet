@@ -1,212 +1,221 @@
-import numpy as np
+"""
+GALAH DR4 spectral preprocessing pipeline.
+
+Reads 4-arm reduced spectra downloaded by scripts/galah/download_spec.py
+and produces:
+
+  data/galah/processed/X_flux_clean.npy   shape (N, 4, 4000)
+  data/galah/processed/star_ids.npy       shape (N,)
+  data/galah/processed/standard_wave.npy  shape (4, 4000)
+
+File naming convention (from DataCentral):
+  {sobject_id}{ccd_number}.fits
+  e.g.  1401130047013951.fits  (sobject_id=140113004701395, CCD1/Blue)
+
+FITS extension layout (per official GALAH DR4 format):
+  [0] Primary     : raw flux (sky-subtracted, NOT normalised)
+  [1] normalized  : normalised flux          <-- we use this
+  [2] relative_error
+  [3] sky
+  [4] teluric
+  [5] scattered
+  [6] cross_talk
+  [7] resolution_profile
+
+Wavelength grid: read from CRVAL1 + CDELT1 in HDU[1] header.
+"""
+
 import os
+import numpy as np
 from multiprocessing import Pool, cpu_count
 from scipy.ndimage import median_filter
+from scipy.interpolate import interp1d
 
 try:
     from src.utils.galah.config import CPU_WORKERS_PREPROCESS
 except ImportError:
     CPU_WORKERS_PREPROCESS = max(1, cpu_count() - 1)
 
+# Standard 4-arm output grids — must match extract_features.py and dataset.py
+WAVE_GRIDS = [
+    np.linspace(4713, 4903, 4000),  # CCD1 Blue
+    np.linspace(5648, 5873, 4000),  # CCD2 Green
+    np.linspace(6478, 6737, 4000),  # CCD3 Red
+    np.linspace(7585, 7887, 4000),  # CCD4 NIR
+]
+STANDARD_WAVE = np.stack(WAVE_GRIDS, axis=0)  # (4, 4000)
 
-def _normalize_single_spectrum(args):
+# CCD number suffix for each arm (matches DataCentral filename convention)
+CCD_SUFFIXES = ["1", "2", "3", "4"]
+
+MIN_FITS_SIZE = 50_000  # bytes — real FITS are >>50 KB; VOTable stubs are ~2 KB
+
+
+def _spike_clean(norm):
+    """5-sigma spike rejection with linear interpolation of bad pixels."""
+    med = np.nanmedian(norm)
+    std = np.nanstd(norm)
+    bad = np.abs(norm - med) > 5.0 * std
+    bad |= ~np.isfinite(norm)
+    if bad.any():
+        px    = np.arange(len(norm))
+        valid = ~bad
+        norm  = (np.interp(px, px[valid], norm[valid])
+                 if valid.sum() > 10 else np.ones_like(norm))
+    return norm
+
+
+def _process_single_star(args):
     """
-    단일 스펙트럼 전처리.
+    Worker function for multiprocessing.Pool.
+
+    args: (sobject_id, spectra_dir)
+
+    Reads normalised flux from HDU[1] of each arm file, resamples onto the
+    standard 4-arm grid, and returns (sobject_id, ndarray shape (4, 4000)).
+    Returns None if any arm is missing or unreadable.
     """
-    raw_flux, pixel_mask = args
-    raw_flux = raw_flux.astype(float)
-    safe_flux = np.copy(raw_flux)
-    if pixel_mask is not None:
-        safe_flux[pixel_mask != 0] = np.nan
+    import astropy.io.fits as fits
 
-    fill = np.nanmedian(safe_flux) if np.any(np.isfinite(safe_flux)) else 1.0
-    bg_continuum = median_filter(np.nan_to_num(safe_flux, nan=fill), size=201)
-    bg_continuum = np.where(bg_continuum <= 0, 1e-5, bg_continuum)
-    norm_flux = safe_flux / bg_continuum
+    sobject_id, spectra_dir = args
+    arm_arrays = []
 
-    norm_median = np.nanmedian(norm_flux)
-    norm_std    = np.nanstd(norm_flux)
-    spike_mask  = np.abs(norm_flux - norm_median) > 5.0 * norm_std
-    spike_mask |= ~np.isfinite(norm_flux)
+    for arm_idx, ccd in enumerate(CCD_SUFFIXES):
+        fpath = os.path.join(spectra_dir, f"{sobject_id}{ccd}.fits")
 
-    if spike_mask.any():
-        px    = np.arange(len(norm_flux))
-        valid = ~spike_mask
-        norm_flux = np.interp(px, px[valid], norm_flux[valid]) if valid.sum() > 10 \
-                    else np.ones_like(norm_flux)
+        if not os.path.exists(fpath) or os.path.getsize(fpath) < MIN_FITS_SIZE:
+            return None   # Missing or stub file — skip entire star
 
-    return norm_flux.astype(np.float32)
+        try:
+            with fits.open(fpath, memmap=False) as h:
+                # HDU[1] is the normalised spectrum
+                hdr  = h[1].header
+                flux = h[1].data.astype(float)
 
+                if flux.ndim != 1 or len(flux) < 100:
+                    return None
 
-def generate_synthetic_galah_dataset(out_dir, num_stars=120):
-    """
-    FITS 파일이 없을 경우, 15개 흡수선이 포함된 합성 4-Arm 데이터셋을 생성합니다.
-    """
-    print(f"⚠️  Raw FITS not found. Generating {num_stars} synthetic GALAH spectra...")
-    
-    # 4 arms standard wave grids
-    wave_grids = [
-        np.linspace(4713, 4903, 4000), # CCD1
-        np.linspace(5648, 5873, 4000), # CCD2
-        np.linspace(6478, 6737, 4000), # CCD3
-        np.linspace(7585, 7887, 4000)  # CCD4
-    ]
-    standard_wave = np.stack(wave_grids, axis=0) # (4, 4000)
+                crval1 = float(hdr.get("CRVAL1", WAVE_GRIDS[arm_idx][0]))
+                cdelt1 = float(hdr.get("CDELT1",
+                                       (WAVE_GRIDS[arm_idx][-1] - WAVE_GRIDS[arm_idx][0])
+                                       / max(len(flux) - 1, 1)))
+                crpix1 = float(hdr.get("CRPIX1", 1.0))
+                wave   = crval1 + (np.arange(len(flux)) - crpix1 + 1) * cdelt1
 
-    # 15 target lines
-    target_lines = [
-        (4861.3, 1.5, 0.4), (4882.1, 1.0, 0.2), (4703.0, 1.2, 0.3), (4897.4, 0.8, 0.15), # CCD1
-        (5662.5, 1.0, 0.25), (5711.1, 1.2, 0.35), (5782.1, 0.9, 0.2), (5862.4, 0.7, 0.15), # CCD2
-        (6562.8, 2.0, 0.5), (6494.9, 1.1, 0.3), (6499.7, 1.0, 0.2), (6707.8, 0.8, 0.15), # CCD3
-        (7748.3, 1.2, 0.3), (7699.0, 1.5, 0.4), (7772.0, 1.1, 0.25) # CCD4
-    ]
+        except Exception:
+            return None
 
-    np.random.seed(42)
-    fluxes = []
-    star_ids = []
+        # The normalised flux from DataCentral is already continuum-divided.
+        # Apply spike cleaning only.
+        norm  = _spike_clean(flux.copy())
+        clean = np.isfinite(norm) & np.isfinite(wave)
+        if clean.sum() < 10:
+            return None
 
-    for idx in range(num_stars):
-        star_id = f"G{idx:05d}"
-        star_ids.append(star_id)
+        try:
+            f_interp  = interp1d(wave[clean], norm[clean],
+                                 kind="linear", bounds_error=False,
+                                 fill_value=np.nanmedian(norm[clean]))
+            resampled = f_interp(WAVE_GRIDS[arm_idx]).astype(np.float32)
+        except Exception:
+            return None
 
-        # Teff, logg, [Fe/H]에 따라 흡수 깊이 조절을 모사
-        teff_scale = np.random.uniform(0.7, 1.3)
-        logg_scale = np.random.uniform(0.8, 1.2)
-        feh_scale = np.random.uniform(0.5, 1.5)
+        arm_arrays.append(resampled)
 
-        star_arms = []
-        for arm_idx, wave in enumerate(wave_grids):
-            # Flat continuum with small slope
-            slope = np.random.uniform(-0.02, 0.02)
-            flux = 1.0 + slope * np.linspace(-1.0, 1.0, 4000)
-            
-            # Add absorption lines falling in this arm
-            for center, width, depth in target_lines:
-                if wave[0] <= center <= wave[-1]:
-                    # Adjust depth based on scales
-                    if "6562" in f"{center:.1f}" or "4861" in f"{center:.1f}":
-                        # Balmer lines: Teff dependent
-                        act_depth = depth * teff_scale
-                    else:
-                        # Metal lines: feh dependent
-                        act_depth = depth * feh_scale * logg_scale
-                    act_depth = np.clip(act_depth, 0.0, 0.95)
-                    
-                    profile = act_depth * np.exp(-(wave - center)**2 / (2 * width**2))
-                    flux -= profile
-            
-            # Add small noise before z-score
-            flux += np.random.normal(0, 0.01, 4000)
-            star_arms.append(flux)
-            
-        fluxes.append(np.stack(star_arms, axis=0))
-
-    X_flux = np.array(fluxes, dtype=np.float32)
-    
-    np.save(os.path.join(out_dir, "X_flux_clean.npy"), X_flux)
-    np.save(os.path.join(out_dir, "star_ids.npy"), np.array(star_ids))
-    np.save(os.path.join(out_dir, "standard_wave.npy"), standard_wave)
-    print(f"Saved synthetic GALAH data to {out_dir}")
-    print(f"   > X_flux_clean shape: {X_flux.shape}")
-    print(f"   > standard_wave shape: {standard_wave.shape}")
+    return sobject_id, np.stack(arm_arrays, axis=0)  # (4, 4000)
 
 
 def run_galah_preprocessing_pipeline(raw_dir, out_dir):
     """
-    GALAH 원본 FITS 파일이 존재하는 경우 이를 파싱하고 전처리합니다.
-    없으면 합성 데이터로 대체합니다.
-    """
-    os.makedirs(out_dir, exist_ok=True)
-    galah_catalog = os.path.join(raw_dir, "galah_dr4_allstar.csv")
-    spectra_dir = os.path.join(raw_dir, "spectra")
-    
-    if not os.path.exists(galah_catalog) or not os.path.exists(spectra_dir):
-        generate_synthetic_galah_dataset(out_dir)
-        return
+    Preprocess all GALAH DR4 spectra found in raw_dir/spectra/.
 
-    import astropy.io.fits as fits
-    from scipy.interpolate import interp1d
-    import csv
-    
-    print(f"[GALAH] Reading catalog from: {galah_catalog}")
-    stars = []
-    with open(galah_catalog, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            stars.append(row["sobject_id"].strip())
-            
-    print(f"Total stars in catalog: {len(stars)}")
-    
-    # 4 arms standard wave grids
-    wave_grids = [
-        np.linspace(4713, 4903, 4000), # CCD1
-        np.linspace(5648, 5873, 4000), # CCD2
-        np.linspace(6478, 6737, 4000), # CCD3
-        np.linspace(7585, 7887, 4000)  # CCD4
-    ]
-    standard_wave = np.stack(wave_grids, axis=0) # (4, 4000)
-    
-    fluxes = []
-    star_ids = []
-    
-    for idx, sid in enumerate(stars):
-        # Check if all 4 arms exist for this star
-        arms_exist = True
-        arm_files = {}
-        for filt in ["B", "G", "R", "I"]:
-            fpath = os.path.join(spectra_dir, f"{sid}_{filt}.fits")
-            if not os.path.exists(fpath):
-                arms_exist = False
-                break
-            arm_files[filt] = fpath
-            
-        if not arms_exist:
-            continue
-            
-        star_arms = []
-        try:
-            for arm_idx, filt in enumerate(["B", "G", "R", "I"]):
-                fpath = arm_files[filt]
-                with fits.open(fpath) as h:
-                    hdr = h[0].header
-                    flux = h[0].data.astype(float)
-                    crval1 = hdr['CRVAL1']
-                    cdelt1 = hdr['CDELT1']
-                    crpix1 = hdr.get('CRPIX1', 1.0)
-                    wave = crval1 + (np.arange(len(flux)) - crpix1 + 1) * cdelt1
-                    
-                    target_wave = wave_grids[arm_idx]
-                    f_interp = interp1d(wave, flux, kind='linear', bounds_error=False, fill_value=np.nanmedian(flux))
-                    resampled_flux = f_interp(target_wave)
-                    
-                    norm_flux = _normalize_single_spectrum((resampled_flux, None))
-                    star_arms.append(norm_flux)
-            
-            fluxes.append(np.stack(star_arms, axis=0))
-            star_ids.append(sid)
-            
-        except Exception as e:
-            print(f"Error processing star {sid}: {e}")
-            continue
-            
-    if len(fluxes) == 0:
-        print("No valid real stars processed. Falling back to synthetic.")
-        generate_synthetic_galah_dataset(out_dir)
-        return
-        
-    X_flux = np.array(fluxes, dtype=np.float32)
-    np.save(os.path.join(out_dir, "X_flux_clean.npy"), X_flux)
-    np.save(os.path.join(out_dir, "star_ids.npy"), np.array(star_ids))
-    np.save(os.path.join(out_dir, "standard_wave.npy"), standard_wave)
-    
-    print(f"Saved real preprocessed GALAH data to {out_dir}")
-    print(f"   > X_flux_clean shape: {X_flux.shape}")
-    print(f"   > standard_wave shape: {standard_wave.shape}")
+    Expected filenames: {sobject_id}{1,2,3,4}.fits
+    Stars with any missing or stub arm file are silently skipped.
+    """
+    spectra_dir = os.path.join(raw_dir, "spectra")
+
+    if not os.path.isdir(spectra_dir):
+        raise FileNotFoundError(
+            f"Spectra directory not found: {spectra_dir}\n"
+            "Run scripts/galah/download_spec.py first."
+        )
+
+    # Collect candidates from CCD1 (*1.fits) files
+    ccd1_files = [f for f in os.listdir(spectra_dir) if f.endswith("1.fits")]
+    if not ccd1_files:
+        raise FileNotFoundError(
+            f"No *1.fits files found in: {spectra_dir}\n"
+            "Run scripts/galah/download_spec.py first."
+        )
+
+    # Keep only stars where all 4 arms are present and large enough
+    valid_ids, stub_count = [], 0
+    for f1 in ccd1_files:
+        sid = f1[:-6]  # strip the trailing "1.fits"
+        all_ok = all(
+            os.path.exists(os.path.join(spectra_dir, f"{sid}{c}.fits"))
+            and os.path.getsize(os.path.join(spectra_dir, f"{sid}{c}.fits")) >= MIN_FITS_SIZE
+            for c in CCD_SUFFIXES
+        )
+        if all_ok:
+            valid_ids.append(sid)
+        else:
+            stub_count += 1
+
+    total = len(valid_ids)
+    print(f"[Preprocess] Stars with all 4 complete arms : {total}")
+    if stub_count:
+        print(f"[Preprocess] Skipped (stub/incomplete)      : {stub_count}")
+        print(f"[Preprocess] Re-run download_spec.py to fetch missing arm files.")
+
+    if total == 0:
+        raise RuntimeError(
+            "No complete 4-arm spectra found. "
+            "All *1.fits files appear to be DataLink VOTable stubs "
+            "(file size < 50 KB). Run scripts/galah/download_spec.py."
+        )
+
+    print(f"[Preprocess] Processing with {CPU_WORKERS_PREPROCESS} workers...")
+
+    args = [(sid, spectra_dir) for sid in valid_ids]
+    from tqdm import tqdm
+    with Pool(processes=CPU_WORKERS_PREPROCESS) as pool:
+        results = list(tqdm(
+            pool.imap(_process_single_star, args, chunksize=50),
+            total=total,
+            desc="Preprocessing GALAH spectra",
+            unit="star",
+        ))
+
+    good   = [r for r in results if r is not None]
+    n_good = len(good)
+    n_fail = total - n_good
+    print(f"[Preprocess] Successfully processed : {n_good}")
+    if n_fail:
+        print(f"[Preprocess] FITS read failures     : {n_fail}")
+
+    if n_good == 0:
+        raise RuntimeError(
+            "All spectra failed during preprocessing. "
+            "Verify that the downloaded FITS files are valid GALAH DR4 spectra."
+        )
+
+    star_ids = np.array([r[0] for r in good])
+    X_flux   = np.stack([r[1] for r in good], axis=0)  # (N, 4, 4000)
+
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, "X_flux_clean.npy"),  X_flux)
+    np.save(os.path.join(out_dir, "star_ids.npy"),       star_ids)
+    np.save(os.path.join(out_dir, "standard_wave.npy"),  STANDARD_WAVE)
+
+    print(f"[Preprocess] Saved to : {out_dir}")
+    print(f"   X_flux_clean.npy  : {X_flux.shape}")
+    print(f"   star_ids.npy      : {star_ids.shape}")
+    print(f"   standard_wave.npy : {STANDARD_WAVE.shape}")
 
 
 if __name__ == "__main__":
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     raw_dir  = os.path.join(base_dir, "data", "galah", "raw")
     out_dir  = os.path.join(base_dir, "data", "galah", "processed")
-    
     run_galah_preprocessing_pipeline(raw_dir, out_dir)

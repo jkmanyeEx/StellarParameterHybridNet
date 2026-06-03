@@ -30,7 +30,10 @@ def calculate_statistical_metrics(y_true, y_pred):
 
 
 def run_real_bulk_evaluation():
-    print(f"[GALAH Eval] Compute device → {DEVICE}\n")
+    print(f"\n{'='*70}")
+    print("  GALAH Validation Split Evaluation")
+    print(f"{'='*70}")
+    print(f"  Compute device : {DEVICE}")
 
     base_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     proc_dir     = os.path.join(base_dir, "data", "galah", "processed")
@@ -38,19 +41,22 @@ def run_real_bulk_evaluation():
     feature_path = os.path.join(proc_dir, "X_features_physical.npy")
     label_path   = os.path.join(proc_dir, "Y_labels.npy")
     weights_path = os.path.join(base_dir, "weights", "galah", "stellar_hybrid_model.pth")
-    
-    if not (os.path.exists(flux_path) and os.path.exists(feature_path) and os.path.exists(label_path)):
-        print(f"Error: Processed GALAH files not found in {proc_dir}")
-        print("Please run preprocess and feature extraction scripts first.")
-        return
 
-    # Load stats
+    for p in (flux_path, feature_path, label_path):
+        if not os.path.exists(p):
+            raise FileNotFoundError(
+                f"Processed GALAH file not found: {p}\n"
+                "Execute the GALAH data pipeline first."
+            )
+
     _label_stats_path   = os.path.join(proc_dir, "label_stats.npy")
     _feature_stats_path = os.path.join(proc_dir, "feature_stats.npy")
-
-    if not (os.path.exists(_label_stats_path) and os.path.exists(_feature_stats_path)):
-        print("Normalization stats not found. Run training first to fit stats.")
-        return
+    for p in (_label_stats_path, _feature_stats_path):
+        if not os.path.exists(p):
+            raise FileNotFoundError(
+                f"Normalisation statistics not found: {p}\n"
+                "Execute the GALAH training pipeline first."
+            )
 
     _ls = np.load(_label_stats_path)
     LABEL_MEAN = _ls[0].astype(np.float32)
@@ -77,24 +83,25 @@ def run_real_bulk_evaluation():
     train_size = int(0.8 * len(valid_indices))
     val_idx = valid_indices[train_size:]
 
-    print(f"Loaded {len(val_idx)} validation samples for GALAH.")
+    print(f"  Validation samples : {len(val_idx)}")
 
-    # Load Model
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(
+            f"Model weights not found at: {weights_path}\n"
+            "Execute the GALAH training pipeline first."
+        )
     model = StellarParameterHybridNet(use_features=True).to(DEVICE)
-    if os.path.exists(weights_path):
-        checkpoint = torch.load(weights_path, map_location=DEVICE)
-        if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
-            model.load_state_dict(checkpoint['model_state'])
-        else:
-            model.load_state_dict(checkpoint)
-        print(f"   [Weights] Loaded from {weights_path}")
+    checkpoint = torch.load(weights_path, map_location=DEVICE)
+    if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
+        model.load_state_dict(checkpoint['model_state'])
     else:
-        print(f"   [WARN] Weights not found at {weights_path} — using random init.")
+        model.load_state_dict(checkpoint)
+    print(f"  Model checkpoint : {weights_path}")
     model.eval()
 
-    # Load validation data
-    fluxes   = np.load(flux_path)[val_idx]
-    features = np.load(feature_path)[val_idx]
+    # Load validation data using mmap to avoid loading the full array into RAM
+    fluxes   = np.load(flux_path,    mmap_mode='r')[val_idx]
+    features = np.load(feature_path, mmap_mode='r')[val_idx]
     truths   = raw_labels[val_idx]
 
     pred_list = []
@@ -128,15 +135,15 @@ def run_real_bulk_evaluation():
     parameters = ["T_eff  (K)", "log g  (dex)", "[Fe/H] (dex)"]
     units      = ["K",          "dex",          "dex"]
 
-    print("\n" + "=" * 80)
-    print(" GALAH VALIDATION PERFORMANCE")
-    print("=" * 80)
-    print(f"{'Parameter':<20} | {'MAE':>10} | {'RMSE':>10} | {'Rel Err':>10} | {'R2':>10}")
-    print("-" * 80)
+    print(f"\n{'='*80}")
+    print("  GALAH Validation Split — Performance Summary")
+    print(f"{'='*80}")
+    print(f"  {'Parameter':<20} | {'MAE':>10} | {'RMSE':>10} | {'Rel. Error':>10} | {'R²':>10}")
+    print(f"  {'-'*76}")
     for i in range(3):
-        print(f"{parameters[i]:<20} | {mae[i]:>10.3f} | {rmse[i]:>10.3f} | "
+        print(f"  {parameters[i]:<20} | {mae[i]:>10.3f} | {rmse[i]:>10.3f} | "
               f"{rel_err[i]:>9.2f}% | {r2[i]:>10.4f}")
-    print("=" * 80)
+    print(f"{'='*80}")
 
     report_dir = os.path.join(base_dir, "report", "galah")
     os.makedirs(report_dir, exist_ok=True)
@@ -157,7 +164,7 @@ def run_real_bulk_evaluation():
             f.write(f"     Relative Error : {rel_err[i]:.2f}%\n")
             f.write(f"     R2 Score       : {r2[i]:.4f}\n\n")
 
-    print(f"\nReport saved → {out_path}")
+    print(f"  Report saved to: {out_path}")
 
 
 if __name__ == "__main__":

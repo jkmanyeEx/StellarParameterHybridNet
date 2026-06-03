@@ -94,6 +94,9 @@ def main():
         feh = np.random.uniform(-2.5, 0.5, num_stars)
         
         Y_labels = np.column_stack((teff, logg, feh))
+        print("[WARNING] Synthetic labels are INDEPENDENT of synthetic flux.\n"
+              "   Training on these pairs teaches the model noise, not stellar physics.\n"
+              "   Download allStar-dr17.fits before running training.")
         print(f"   > Generated {num_stars} synthetic labels.")
 
     np.save(save_path, Y_labels)

@@ -1,12 +1,18 @@
-1. preprocess
-    - read_and_normalize_data
-    - remove_telluric (ignore)
-    - extract_feature
+## Pipeline Execution Order
 
-2. dataloader (don't have to run by yourself)
+Each survey is fully independent. Run these steps in sequence for each survey
+(`mastar`, `apogee`, or `galah`). Replace `<survey>` accordingly.
 
-3. architecture
+```
+Step 1  python src/data/<survey>/preprocess_flux.py
+Step 2  python src/data/<survey>/extract_features.py
+Step 3  python src/data/<survey>/extract_labels.py
+Step 4  python scripts/<survey>/train.py
+Step 5  python scripts/<survey>/evaluate.py          # in-survey validation split
+Step 6  python scripts/<survey>/xai_analysis.py      # Jacobian XAI
+Step 7  python scripts/<survey>/evaluate_mastar.py   # cross-domain: model on MaStar
+```
 
-4. training
-
-5. validation
+Shell wrappers (MaStar only):
+  run_workflow.sh  — full pipeline from preprocess to evaluation
+  retrain.sh       — steps 4–7 only (re-training without preprocessing)

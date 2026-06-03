@@ -14,10 +14,15 @@ def gaussian_profile(x, a, x0, sigma, c):
     return c - a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
 
 
-def extract_45d_features_single_star(wave_2d, norm_flux_2d):
+def extract_45d_features_single_star(wave_2d, flux_2d):
     """
     15개 흡수선 x 3값 (EW, FWHM, depth) = 45D 피처 벡터 추출.
     각 흡수선이 해당하는 CCD arm (0~3)에서 피처를 추출합니다.
+
+    Parameters
+    ----------
+    wave_2d : np.ndarray shape (4, 4000)  — per-arm wavelength grids
+    flux_2d : np.ndarray shape (4, 4000)  — continuum-normalized flux per arm
     """
     target_lines = {
         # CCD1 (Blue): 4713 - 4903
@@ -45,7 +50,7 @@ def extract_45d_features_single_star(wave_2d, norm_flux_2d):
 
     for line_name, (center_wave, window_half, arm_idx) in target_lines.items():
         wave = wave_2d[arm_idx]
-        flux = norm_flux_2d[arm_idx]
+        flux = flux_2d[arm_idx]
 
         mask  = (wave >= center_wave - window_half) & (wave <= center_wave + window_half)
         w_sub = wave[mask]
@@ -87,9 +92,16 @@ def extract_45d_features_single_star(wave_2d, norm_flux_2d):
     return np.array(feature_vector, dtype=np.float32)
 
 
+# Alias for consistent naming across surveys
+extract_30d_features_single_star = extract_45d_features_single_star
+
+
 def _extract_worker(args):
-    wave, flux = args
-    return extract_45d_features_single_star(wave, flux)
+    """Top-level function required by multiprocessing.Pool.
+    args: (wave_2d, flux_2d) both shape (4, 4000)
+    """
+    wave_2d, flux_2d = args
+    return extract_45d_features_single_star(wave_2d, flux_2d)
 
 
 def main():

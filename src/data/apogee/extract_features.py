@@ -14,10 +14,16 @@ def gaussian_profile(x, a, x0, sigma, c):
     return c - a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
 
 
-def extract_30d_features_single_star(wave_2d, norm_flux_2d):
+def extract_30d_features_single_star(wave_2d, flux_2d):
     """
     10개 흡수선 x 3값 (EW, FWHM, depth) = 30D 피처 벡터 추출.
     각 흡수선이 해당하는 NIR chip (0~2)에서 피처를 추출합니다.
+
+    Parameters
+    ----------
+    wave_2d : np.ndarray shape (3, 2800)  — per-arm wavelength grids
+    flux_2d : np.ndarray shape (3, 2800)  — continuum-normalized flux per arm
+                                            (same array stored in X_flux_clean.npy)
     """
     target_lines = {
         # Chip 0 (Blue): 15140 - 15810
@@ -25,10 +31,14 @@ def extract_30d_features_single_star(wave_2d, norm_flux_2d):
         "Fe_I_15648":   (15648.5, 10, 0),
         "Mg_I_15749":   (15749.0, 10, 0),
         # Chip 1 (Green): 15850 - 16430
-        "Mg_I_15886":   (15886.2, 10, 1),
+        # Mg_I_15886 (15886.2) and Br_14 (15884.9) are only 1.3 A apart;
+        # their windows overlap completely and Gaussian fitting is unstable.
+        # Br_14 is kept as the stronger, more Teff-sensitive line.
+        # Mg_I_15886 is replaced by Si_I_16094 on the same chip.
         "Si_I_15960":   (15960.0, 10, 1),
         "Br_14":        (15884.9, 12, 1),
         "Fe_I_16040":   (16040.0, 10, 1),
+        "Si_I_16094":   (16094.0, 10, 1),  # replaces Mg_I_15886
         # Chip 2 (Red): 16470 - 16960
         "Si_I_16680":   (16680.0, 10, 2),
         "Al_I_16755":   (16754.7, 10, 2),
@@ -39,7 +49,7 @@ def extract_30d_features_single_star(wave_2d, norm_flux_2d):
 
     for line_name, (center_wave, window_half, arm_idx) in target_lines.items():
         wave = wave_2d[arm_idx]
-        flux = norm_flux_2d[arm_idx]
+        flux = flux_2d[arm_idx]
 
         mask  = (wave >= center_wave - window_half) & (wave <= center_wave + window_half)
         w_sub = wave[mask]
@@ -82,8 +92,11 @@ def extract_30d_features_single_star(wave_2d, norm_flux_2d):
 
 
 def _extract_worker(args):
-    wave, flux = args
-    return extract_30d_features_single_star(wave, flux)
+    """Top-level function required by multiprocessing.Pool.
+    args: (wave_2d, flux_2d) both shape (3, 2800)
+    """
+    wave_2d, flux_2d = args
+    return extract_30d_features_single_star(wave_2d, flux_2d)
 
 
 def main():

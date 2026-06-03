@@ -14,39 +14,45 @@ plt.rcParams.update({
     'legend.fontsize': 6.0, 'figure.titlesize': 9.0
 })
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.models.hybrid_net import StellarParameterHybridNet
-from src.validation.eval_core_mastar import load_mastar_spectra
-from src.validation.xai_analyzer import extract_30d_features_live_eval, calculate_per_line_weight_attribution
+from src.models.mastar.hybrid_net import StellarParameterHybridNet
+from src.validation.mastar.eval_core_mastar import load_mastar_spectra
+from src.validation.mastar.xai_analyzer import extract_30d_features_live_eval, calculate_per_line_weight_attribution
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
-# ── 파장 그리드 ───────────────────────────────────────────────────────────────
-_wave_path = os.path.join(BASE_DIR, "data", "processed", "standard_wave.npy")
-WAVE_GRID  = np.load(_wave_path) if os.path.exists(_wave_path) \
-             else np.linspace(3650.0, 10250.0, 4563)
+# ── Wave grid ────────────────────────────────────────────────────────────────
+_wave_path = os.path.join(BASE_DIR, "data", "mastar", "processed", "standard_wave.npy")
+if not os.path.exists(_wave_path):
+    raise FileNotFoundError(
+        f"MaStar standard_wave.npy not found at: {_wave_path}\n"
+        "Execute src/data/mastar/preprocess_flux.py first."
+    )
+WAVE_GRID = np.load(_wave_path)
 
-# ── 정규화 통계 ───────────────────────────────────────────────────────────────
-_proc_dir = os.path.join(BASE_DIR, "data", "processed")
+# ── Normalisation statistics ──────────────────────────────────────────────────
+_proc_dir = os.path.join(BASE_DIR, "data", "mastar", "processed")
 
 _ls_path = os.path.join(_proc_dir, "label_stats.npy")
-if os.path.exists(_ls_path):
-    _ls = np.load(_ls_path)
-    LABEL_MEAN = _ls[0].astype(np.float32)
-    LABEL_STD  = _ls[1].astype(np.float32)
-else:
-    LABEL_MEAN = np.array([5169.055664,  3.549788, -0.657069], dtype=np.float32)
-    LABEL_STD  = np.array([ 998.064880,  1.081975,  0.723029], dtype=np.float32)
+if not os.path.exists(_ls_path):
+    raise FileNotFoundError(
+        f"label_stats.npy not found at: {_ls_path}\n"
+        "Execute the MaStar training pipeline first."
+    )
+_ls = np.load(_ls_path)
+LABEL_MEAN = _ls[0].astype(np.float32)
+LABEL_STD  = _ls[1].astype(np.float32)
 
 _fs_path = os.path.join(_proc_dir, "feature_stats.npy")
-if os.path.exists(_fs_path):
-    _fs = np.load(_fs_path)
-    FEATURE_MEAN = _fs[0].astype(np.float32)
-    FEATURE_STD  = _fs[1].astype(np.float32)
-else:
-    FEATURE_MEAN = np.zeros(30, dtype=np.float32)
-    FEATURE_STD  = np.ones(30,  dtype=np.float32)
+if not os.path.exists(_fs_path):
+    raise FileNotFoundError(
+        f"feature_stats.npy not found at: {_fs_path}\n"
+        "Execute the MaStar training pipeline first."
+    )
+_fs = np.load(_fs_path)
+FEATURE_MEAN = _fs[0].astype(np.float32)
+FEATURE_STD  = _fs[1].astype(np.float32)
 
 # ── 10개 흡수선 ───────────────────────────────────────────────────────────────
 ABSORPTION_LINES = [
@@ -93,17 +99,19 @@ class StellarValidatorGUI:
         self.root.focus_set()
 
     def init_model(self):
-        weights_path = os.path.join(BASE_DIR, "weights", "stellar_hybrid_model.pth")
+        weights_path = os.path.join(BASE_DIR, "weights", "mastar", "stellar_hybrid_model.pth")
         self.model = StellarParameterHybridNet().to(self.device)
-        if os.path.exists(weights_path):
-            ckpt = torch.load(weights_path, map_location=self.device)
-            if isinstance(ckpt, dict) and 'model_state' in ckpt:
-                self.model.load_state_dict(ckpt['model_state'])
-            else:
-                self.model.load_state_dict(ckpt)
-            print(f"[Model] Loaded from {weights_path}")
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError(
+                f"Model weights not found at: {weights_path}\n"
+                "Execute the MaStar training pipeline first."
+            )
+        ckpt = torch.load(weights_path, map_location=self.device)
+        if isinstance(ckpt, dict) and 'model_state' in ckpt:
+            self.model.load_state_dict(ckpt['model_state'])
         else:
-            print("[WARN] Weights not found.")
+            self.model.load_state_dict(ckpt)
+        print(f"[GUI] Model loaded from: {weights_path}")
         self.model.eval()
         self.per_line_attr = calculate_per_line_weight_attribution(self.model)
 
@@ -385,8 +393,11 @@ class StellarValidatorGUI:
             label  = r"Jacobian (Normal) $\partial \log g / \partial \lambda$"
             color  = "#ff77ff"
 
+        # Clear any accumulated gradient on the input tensor before backward
+        if t_flux.grad is not None:
+            t_flux.grad.zero_()
+
         pred = self.model(t_flux, t_feat)
-        self.model.zero_grad()
         grad_out = torch.zeros_like(pred)
         grad_out[0, 1] = 1.0
         pred.backward(grad_out)

@@ -24,13 +24,13 @@ class CrossModalAttention(nn.Module):
         return x * self.attention_weights(x)
 
 
-def build_output_branch():
+def build_output_branch(in_dim=FUSION_DIM):
     return nn.Sequential(
-        nn.LayerNorm(FUSION_DIM),
+        nn.LayerNorm(in_dim),
 
-        CrossModalAttention(in_dim=FUSION_DIM),
+        CrossModalAttention(in_dim=in_dim),
 
-        nn.Linear(in_features=FUSION_DIM, out_features=256),
+        nn.Linear(in_features=in_dim, out_features=256),
         nn.LayerNorm(256),
         nn.GELU(),
         nn.Dropout(p=0.2),

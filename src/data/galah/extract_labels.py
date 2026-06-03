@@ -1,106 +1,98 @@
+"""
+GALAH DR4 label alignment.
+
+Reads galah_dr4_allstar.csv (downloaded by download_spec.py with
+flag_sp = 0 and flag_fe_h = 0 filters already applied) and aligns
+the stellar parameter labels to the star_ids order produced by
+preprocess_flux.py.
+
+CSV columns used:
+  sobject_id  — unique spectrum identifier (integer, stored as string)
+  teff        — effective temperature (K)
+  logg        — surface gravity (dex)
+  fe_h        — metallicity [Fe/H] (dex)
+
+Stars not found in the catalog receive -999 sentinel labels and are
+filtered out by the Dataset and training engine.
+"""
+
 import numpy as np
 import os
+import csv
+
 
 def main():
-    print("Aligning GALAH Catalog Labels with Spectrum ID sequence...")
-    
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    base_dir      = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     processed_dir = os.path.join(base_dir, "data", "galah", "processed")
-    
-    catalog_csv   = os.path.join(base_dir, "data", "galah", "raw", "galah_dr4_allstar.csv")
-    catalog_path  = os.path.join(base_dir, "data", "galah", "raw", "galah_dr4_allstar.fits")
+    raw_dir       = os.path.join(base_dir, "data", "galah", "raw")
+
+    catalog_csv   = os.path.join(raw_dir, "galah_dr4_allstar.csv")
     star_ids_path = os.path.join(processed_dir, "star_ids.npy")
     save_path     = os.path.join(processed_dir, "Y_labels.npy")
 
     if not os.path.exists(star_ids_path):
-        print(f"Error: '{star_ids_path}' not found. Run preprocess_flux.py first.")
-        return
+        raise FileNotFoundError(
+            f"star_ids.npy not found at: {star_ids_path}\n"
+            "Execute src/data/galah/preprocess_flux.py first."
+        )
+    if not os.path.exists(catalog_csv):
+        raise FileNotFoundError(
+            f"GALAH catalog not found at: {catalog_csv}\n"
+            "Execute scripts/galah/download_spec.py first."
+        )
 
-    star_ids = np.load(star_ids_path, allow_pickle=True)
+    star_ids  = np.load(star_ids_path, allow_pickle=True)
     num_stars = len(star_ids)
 
-    # 1. Check if CSV catalog exists (downloaded online)
-    if os.path.exists(catalog_csv):
-        import csv
-        print(f"   > Reading GALAH DR4 catalog from CSV: {catalog_csv}")
-        cat_map = {}
-        with open(catalog_csv, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                sid = row["sobject_id"].strip()
-                cat_map[sid] = {
-                    "TEFF": float(row["teff"]),
-                    "LOGG": float(row["logg"]),
-                    "FEH":  float(row["fe_h"])
-                }
-        
-        aligned_teff, aligned_logg, aligned_feh = [], [], []
-        vac_hit, null_count = 0, 0
-        for sid in star_ids:
-            spec_id = str(sid).strip()
-            if spec_id in cat_map:
-                aligned_teff.append(cat_map[spec_id]["TEFF"])
-                aligned_logg.append(cat_map[spec_id]["LOGG"])
-                aligned_feh.append(cat_map[spec_id]["FEH"])
-                vac_hit += 1
-            else:
-                aligned_teff.append(-999.0)
-                aligned_logg.append(-999.0)
-                aligned_feh.append(-999.0)
-                null_count += 1
-        
-        Y_labels = np.column_stack((aligned_teff, aligned_logg, aligned_feh))
-        print(f"   > Real catalog alignment complete. Hits: {vac_hit}, Misses: {null_count}")
+    print(f"[Labels] Aligning labels for {num_stars} preprocessed spectra...")
+    print(f"[Labels] Catalog source: {catalog_csv}")
 
-    # 2. Fallback to FITS catalog
-    elif os.path.exists(catalog_path):
-        import astropy.io.fits as fits
-        print(f"   > Reading GALAH DR4 catalog from FITS: {catalog_path}")
-        with fits.open(catalog_path) as hdul:
-            data = hdul[1].data
-            cat_map = {}
-            for row in data:
-                sid = str(row["sobject_id"]).strip()
-                cat_map[sid] = {
-                    "TEFF": float(row["teff"]),
-                    "LOGG": float(row["logg"]),
-                    "FEH":  float(row["fe_h"])
-                }
-        
-        aligned_teff, aligned_logg, aligned_feh = [], [], []
-        vac_hit, null_count = 0, 0
-        for sid in star_ids:
-            spec_id = str(sid).strip()
-            if spec_id in cat_map:
-                aligned_teff.append(cat_map[spec_id]["TEFF"])
-                aligned_logg.append(cat_map[spec_id]["LOGG"])
-                aligned_feh.append(cat_map[spec_id]["FEH"])
-                vac_hit += 1
-            else:
-                aligned_teff.append(-999.0)
-                aligned_logg.append(-999.0)
-                aligned_feh.append(-999.0)
-                null_count += 1
-        
-        Y_labels = np.column_stack((aligned_teff, aligned_logg, aligned_feh))
-        print(f"   > Real catalog alignment complete. Hits: {vac_hit}, Misses: {null_count}")
+    # Build sobject_id -> (teff, logg, fe_h) lookup
+    # The CSV was queried with flag_sp = 0 and flag_fe_h = 0, so all
+    # entries are already quality-filtered.
+    cat_map = {}
+    with open(catalog_csv, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sid = row["sobject_id"].strip()
+            try:
+                cat_map[sid] = (
+                    float(row["teff"]),
+                    float(row["logg"]),
+                    float(row["fe_h"]),
+                )
+            except (ValueError, KeyError):
+                continue  # Malformed row — skip
 
-    else:
-        # FITS 파일이 없을 경우 합성 레이블 생성
-        print("⚠️  GALAH Catalog CSV/FITS not found. Generating synthetic labels...")
-        np.random.seed(42)
-        # Teff: 3500 ~ 7000 K
-        teff = np.random.uniform(3500, 7000, num_stars)
-        # logg: 0.5 ~ 5.0 dex
-        logg = np.random.uniform(0.5, 5.0, num_stars)
-        # [Fe/H]: -2.5 ~ 0.5 dex
-        feh = np.random.uniform(-2.5, 0.5, num_stars)
-        
-        Y_labels = np.column_stack((teff, logg, feh))
-        print(f"   > Generated {num_stars} synthetic labels.")
+    print(f"[Labels] Catalog entries loaded: {len(cat_map)}")
 
+    aligned_teff, aligned_logg, aligned_feh = [], [], []
+    hit, miss = 0, 0
+
+    for sid in star_ids:
+        key = str(sid).strip()
+        if key in cat_map:
+            t, g, z = cat_map[key]
+            aligned_teff.append(t)
+            aligned_logg.append(g)
+            aligned_feh.append(z)
+            hit += 1
+        else:
+            aligned_teff.append(-999.0)
+            aligned_logg.append(-999.0)
+            aligned_feh.append(-999.0)
+            miss += 1
+
+    Y_labels = np.column_stack((aligned_teff, aligned_logg, aligned_feh))
+
+    os.makedirs(processed_dir, exist_ok=True)
     np.save(save_path, Y_labels)
-    print(f"[Success] Shape: {Y_labels.shape} → {save_path}")
+
+    print(f"[Labels] Alignment complete:")
+    print(f"   Total spectra  : {num_stars}")
+    print(f"   Catalog hits   : {hit}  ({hit / num_stars * 100:.1f}%)")
+    print(f"   Catalog misses : {miss} (assigned -999, filtered during training)")
+    print(f"   Saved to       : {save_path}  shape={Y_labels.shape}")
 
 
 if __name__ == "__main__":

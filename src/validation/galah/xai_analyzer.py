@@ -95,51 +95,62 @@ def calculate_eval_model_weight_ratio(model):
 
 def run_xai_line_profile_analysis(num_samples=100):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"[GALAH XAI Engine] Initializing on: {device}")
+    print(f"\n{'='*70}")
+    print("  GALAH XAI — Jacobian Sensitivity Analysis")
+    print(f"{'='*70}")
+    print(f"  Compute device : {device}")
 
     base_dir  = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     proc_dir  = os.path.join(base_dir, "data", "galah", "processed")
 
-    # ── label stats ──
     _ls_path = os.path.join(proc_dir, "label_stats.npy")
-    if os.path.exists(_ls_path):
-        _ls       = np.load(_ls_path)
-        LABEL_STD = _ls[1].astype(np.float32)
-        print(f"   [XAI] label_stats loaded: std={LABEL_STD}")
-    else:
-        LABEL_STD = np.array([1000.0, 1.0, 0.5], dtype=np.float32)
+    if not os.path.exists(_ls_path):
+        raise FileNotFoundError(
+            f"label_stats.npy not found at: {_ls_path}\n"
+            "Execute the GALAH training pipeline first."
+        )
+    _ls       = np.load(_ls_path)
+    LABEL_STD = _ls[1].astype(np.float32)
+    print(f"   [XAI] Label statistics loaded — std={LABEL_STD}")
 
-    # ── 모델 로드 ──
     weights_path = os.path.join(base_dir, "weights", "galah", "stellar_hybrid_model.pth")
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(
+            f"Model weights not found at: {weights_path}\n"
+            "Execute the GALAH training pipeline first."
+        )
     model = StellarParameterHybridNet(use_features=True).to(device)
-    if os.path.exists(weights_path):
-        ckpt = torch.load(weights_path, map_location=device)
-        if isinstance(ckpt, dict) and 'model_state' in ckpt:
-            model.load_state_dict(ckpt['model_state'])
-        else:
-            model.load_state_dict(ckpt)
-        print(f"   [Weights] Loaded from {weights_path}")
+    ckpt = torch.load(weights_path, map_location=device)
+    if isinstance(ckpt, dict) and 'model_state' in ckpt:
+        model.load_state_dict(ckpt['model_state'])
     else:
-        print("   [WARN] Weights not found — running with random init.")
+        model.load_state_dict(ckpt)
+    print(f"   [XAI] Weights loaded from: {weights_path}")
     model.eval()
 
-    # ── 스펙트럼 로드 ──
     flux_path = os.path.join(proc_dir, "X_flux_clean.npy")
     wave_path = os.path.join(proc_dir, "standard_wave.npy")
     if not os.path.exists(flux_path):
-        raise FileNotFoundError(f"Preprocessed flux not found: {flux_path}")
+        raise FileNotFoundError(
+            f"Preprocessed flux not found at: {flux_path}\n"
+            "Execute src/data/galah/preprocess_flux.py first."
+        )
+    if not os.path.exists(wave_path):
+        raise FileNotFoundError(
+            f"standard_wave.npy not found at: {wave_path}\n"
+            "Execute src/data/galah/preprocess_flux.py first."
+        )
 
     X_flux_all = np.load(flux_path)
     wave_grid  = np.load(wave_path)
 
     total_available = X_flux_all.shape[0]
     actual_samples  = min(num_samples, total_available)
-    print(f"   > Dataset: {total_available} stars, using {actual_samples} for XAI.")
+    print(f"   [XAI] Spectra available: {total_available} | Using: {actual_samples}")
 
     np.random.seed(42)
     sample_indices = np.random.choice(total_available, size=actual_samples, replace=False)
 
-    # GALAH Absorption lines mapping to arms
     absorption_lines = {
         "H-alpha (CCD3)": (6513.0, 6613.0, 2),
         "Mg-I-b (CCD2)":  (5680.0, 5740.0, 1),
@@ -155,7 +166,7 @@ def run_xai_line_profile_analysis(num_samples=100):
     ablated_preds   = []
     valid_count     = 0
 
-    print(f"Calculating Jacobians over {actual_samples} spectra...\n")
+    print(f"   [XAI] Running Jacobian analysis over {actual_samples} spectra...\n")
 
     for idx in tqdm(sample_indices, desc="GALAH Jacobian XAI"):
         raw_flux  = X_flux_all[idx] # (4, 4000)
@@ -175,7 +186,7 @@ def run_xai_line_profile_analysis(num_samples=100):
         for p_idx in range(3):
             input_base.grad = None
             g = torch.zeros_like(pred); g[0, p_idx] = 1.0
-            pred.backward(g, retain_graph=(p_idx < 2))
+            pred.backward(g, retain_graph=True)
             jac_acc[p_idx] += np.abs(input_base.grad.cpu().numpy()[0])
 
         # Ablated Jacobian
@@ -185,7 +196,7 @@ def run_xai_line_profile_analysis(num_samples=100):
         for p_idx in range(3):
             input_abl.grad = None
             g = torch.zeros_like(pred_abl); g[0, p_idx] = 1.0
-            pred_abl.backward(g, retain_graph=(p_idx < 2))
+            pred_abl.backward(g, retain_graph=True)
             jac_acc_ablated[p_idx] += np.abs(input_abl.grad.cpu().numpy()[0])
 
         valid_count += 1

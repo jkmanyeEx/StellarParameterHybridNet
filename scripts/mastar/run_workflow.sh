@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Resolve scripts directory location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -11,24 +10,23 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-echo "🚀 [MaStar Workflow] Step 1: Preprocess fluxes..."
+echo "[MaStar Workflow] Step 1: Preprocessing spectral flux..."
 python src/data/mastar/preprocess_flux.py
 
-echo "🚀 [MaStar Workflow] Step 2: Extract physical features..."
+echo "[MaStar Workflow] Step 2: Extracting physical absorption line features..."
 python src/data/mastar/extract_features.py
 
-echo "🚀 [MaStar Workflow] Step 3: Match/Generate catalog labels..."
+echo "[MaStar Workflow] Step 3: Aligning catalog labels..."
 python src/data/mastar/extract_labels.py
 
-echo "🚀 [MaStar Workflow] Step 4: Run hybrid network training..."
+echo "[MaStar Workflow] Step 4: Training hybrid network..."
 python scripts/mastar/train.py
 
-echo "🚀 [MaStar Workflow] Step 5: Evaluate model on validation split..."
+echo "[MaStar Workflow] Step 5: Evaluating on validation split..."
 python scripts/mastar/evaluate.py
 
-echo "🚀 [MaStar Workflow] Step 6: Run XAI attribution analysis..."
+echo "[MaStar Workflow] Step 6: Running XAI Jacobian analysis..."
 python scripts/mastar/xai_analysis.py
 
-echo "🚀 [MaStar Workflow] Step 7: Bulk evaluation on validation spectra..."
+echo "[MaStar Workflow] Step 7: Cross-domain evaluation on SDSS DR17 spectra..."
 python scripts/mastar/evaluate_mastar.py
-

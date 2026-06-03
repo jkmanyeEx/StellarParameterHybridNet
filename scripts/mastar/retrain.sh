@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Resolve scripts directory location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -11,15 +10,14 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-echo "🚀 [MaStar Retrain] Step 1: Run hybrid network training..."
+echo "[MaStar Retrain] Step 1: Training hybrid network..."
 python scripts/mastar/train.py
 
-echo "🚀 [MaStar Retrain] Step 2: Evaluate model on validation split..."
+echo "[MaStar Retrain] Step 2: Evaluating on validation split..."
 python scripts/mastar/evaluate.py
 
-echo "🚀 [MaStar Retrain] Step 3: Run XAI attribution analysis..."
+echo "[MaStar Retrain] Step 3: Running XAI Jacobian analysis..."
 python scripts/mastar/xai_analysis.py
 
-echo "🚀 [MaStar Retrain] Step 4: Bulk evaluation on validation spectra..."
+echo "[MaStar Retrain] Step 4: Cross-domain evaluation on SDSS DR17 spectra..."
 python scripts/mastar/evaluate_mastar.py
-

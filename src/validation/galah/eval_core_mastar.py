@@ -1,47 +1,75 @@
+"""
+Reconstruct the MaStar validation split used during training.
+
+The split is reproduced by applying the identical RNG seed and shuffling
+procedure as src/training/mastar/engine.py, operating on the same
+valid_indices array (absolute positions in the original flux matrix).
+This guarantees that the validation set evaluated here is disjoint from
+the training set the model was fitted on.
+"""
+
 import os
 import numpy as np
 
 
 def load_mastar_spectra():
+    """
+    Load the MaStar held-out validation split.
+
+    Reproduces the exact train/val partition from engine.py:
+      1. Align flux and label arrays to the same length n.
+      2. Filter rows where any label is -999 (no VAC match).
+      3. Record the absolute indices of valid rows (valid_indices).
+      4. Shuffle valid_indices with np.random.default_rng(seed=42).
+      5. Take the last 20 % as the validation set.
+
+    Returns
+    -------
+    X_flux_val   : np.ndarray shape (n_val, 4563)
+    Y_labels_val : np.ndarray shape (n_val, 3)  — [T_eff, log g, [Fe/H]]
+    orig_indices : list of int — original row positions (for reporting)
+    """
     base_dir   = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     flux_path  = os.path.join(base_dir, "data", "mastar", "processed", "X_flux_clean.npy")
     label_path = os.path.join(base_dir, "data", "mastar", "processed", "Y_labels.npy")
 
     if not os.path.exists(flux_path):
-        raise FileNotFoundError(f"Flux file not found: {flux_path}")
+        raise FileNotFoundError(
+            f"MaStar flux matrix not found at: {flux_path}\n"
+            "Execute src/data/mastar/preprocess_flux.py first."
+        )
     if not os.path.exists(label_path):
-        raise FileNotFoundError(f"Label file not found: {label_path}")
+        raise FileNotFoundError(
+            f"MaStar label matrix not found at: {label_path}\n"
+            "Execute src/data/mastar/extract_labels.py first."
+        )
 
-    X_flux_all   = np.load(flux_path)
-    Y_labels_all = np.load(label_path)
+    X_flux_all   = np.load(flux_path,  mmap_mode='r')
+    Y_labels_all = np.load(label_path, mmap_mode='r')
 
     n = min(len(X_flux_all), len(Y_labels_all))
-    X_flux_all   = X_flux_all[:n]
-    Y_labels_all = Y_labels_all[:n]
 
-    valid_mask    = (Y_labels_all[:, 0] > -900) & \
-                    (Y_labels_all[:, 1] > -900) & \
-                    (Y_labels_all[:, 2] > -900)
-    valid_indices = np.where(valid_mask)[0]   # 원본 배열 기준 위치
-    X_flux_clean  = X_flux_all[valid_mask]
-    Y_labels_clean = Y_labels_all[valid_mask]
+    # Step 3: valid_indices — absolute positions, identical to engine.py
+    raw_labels   = Y_labels_all[:n]
+    valid_mask   = (raw_labels[:, 0] > -900) & \
+                   (raw_labels[:, 1] > -900) & \
+                   (raw_labels[:, 2] > -900)
+    valid_indices = np.where(valid_mask)[0]   # absolute positions in [:n]
 
-    total      = len(X_flux_clean)
-    train_size = int(0.8 * total)
-
-    # engine.py와 동일한 RNG (np.random.default_rng(42)) + 동일한 shuffle 로직
-    # → eval 시 val split이 훈련 val split과 정확히 일치 보장
-    indices = np.arange(total)
+    # Step 4: shuffle with the same RNG as engine.py
     rng = np.random.default_rng(42)
-    rng.shuffle(indices)
-    val_local_idx = indices[train_size:]   # valid_mask 기준 내부 인덱스
+    rng.shuffle(valid_indices)
 
-    X_flux_val    = X_flux_clean[val_local_idx]
-    Y_labels_val  = Y_labels_clean[val_local_idx]
-    orig_indices  = valid_indices[val_local_idx]   # 원본 배열 위치 (리포트용)
-    valid_paths   = [f"MaStar_Sample_{idx:06d}.npy" for idx in orig_indices]
+    # Step 5: last 20 % → validation set
+    train_size    = int(0.8 * len(valid_indices))
+    val_indices   = valid_indices[train_size:]   # absolute positions
 
-    print(f"[MaStar Val] Total clean samples: {total} | "
-          f"Train: {train_size} | Val (test set): {total - train_size}")
+    X_flux_val    = X_flux_all[val_indices]
+    Y_labels_val  = Y_labels_all[val_indices]
+    orig_indices  = val_indices.tolist()
 
-    return X_flux_val, Y_labels_val, valid_paths
+    total_valid = len(valid_indices)
+    print(f"[MaStar Val] Total valid samples : {total_valid} | "
+          f"Train : {train_size} | Validation : {len(val_indices)}")
+
+    return np.array(X_flux_val), np.array(Y_labels_val), orig_indices
