@@ -162,6 +162,7 @@ def load_gbs_catalogue(fits_path: str) -> list[dict]:
             return None
 
         hip    = _col(["HIP", "HIPID", "HIP_ID"])
+        gaia   = _col(["GAIADR3", "GAIA_DR3", "SOURCE_ID"])
         teff   = _col(["TEFF", "T_EFF", "TEFF_GBS"])
         logg   = _col(["LOGG", "LOG_G", "LOGG_GBS"])
         feh    = _col(["__FE_H_", "FEH", "FE_H", "[FE/H]", "MET"])
@@ -176,11 +177,16 @@ def load_gbs_catalogue(fits_path: str) -> list[dict]:
                 h = int("".join(c for c in str(hip[i]) if c.isdigit())) if hip is not None else -1
             except (ValueError, TypeError):
                 h = -1
+            try:
+                gaia_id = int(str(gaia[i]).strip()) if gaia is not None else -1
+            except (ValueError, TypeError):
+                gaia_id = -1
 
             if not (np.isfinite(t) and np.isfinite(g)):
                 continue   # skip stars without fundamental params
             stars.append({
                 "hip_id":    h,
+                "gaia_dr3":  gaia_id,
                 "teff_gbs":  t,
                 "logg_gbs":  g,
                 "feh_gbs":   f,
@@ -194,86 +200,57 @@ def load_gbs_catalogue(fits_path: str) -> list[dict]:
 
 # ── GALAH spectrum loader ─────────────────────────────────────────────────────
 
-def _find_galah_fits(galah_dir: str, sobject_id: str) -> list[str | None]:
+def _find_gbs_fits(gbs_dir: str, hip_id: int) -> str | None:
     """
-    Locate the 4 CCD FITS files for a given sobject_id.
-    Returns list of 4 paths (or None if not found).
+    Locate the GBS spectrum for a given HIP ID (e.g., HIP101345_HARPS_1_R42KNorm.fits).
+    Returns the first matching path, or None.
     """
-    paths = []
-    for ccd in range(1, 5):
-        # DR4 layout: spectra/<ccd>/<sobject_id><ccd>.fits
-        p1 = os.path.join(galah_dir, str(ccd), f"{sobject_id}{ccd}.fits")
-        # Flat layout
-        p2 = os.path.join(galah_dir, f"{sobject_id}{ccd}.fits")
-        if   os.path.exists(p1): paths.append(p1)
-        elif os.path.exists(p2): paths.append(p2)
-        else:                    paths.append(None)
-    return paths
+    import glob
+    pattern = os.path.join(gbs_dir, f"HIP{hip_id}_*_R42KNorm.fits")
+    matches = glob.glob(pattern)
+    if matches:
+        return matches[0] # Just use the first available instrument for now
+    return None
 
-
-def _continuum_normalize(flux: np.ndarray, wave: np.ndarray,
-                          deg: int = 4) -> np.ndarray:
-    """Polynomial continuum normalisation on a single arm."""
-    finite = np.isfinite(flux) & (flux > 0)
-    if finite.sum() < deg + 2:
-        return np.ones_like(flux)
-    try:
-        coeffs   = np.polyfit(wave[finite], flux[finite], deg)
-        continuum = np.polyval(coeffs, wave)
-        continuum = np.where(continuum > 0, continuum, 1.0)
-        return flux / continuum
-    except Exception:
-        return np.ones_like(flux)
-
-
-def load_galah_spectrum(fits_paths: list[str | None]) -> np.ndarray | None:
+def load_gbs_spectrum_as_galah(fits_path: str) -> np.ndarray | None:
     """
-    Load and normalise a GALAH 4-arm spectrum.
-    Returns array of shape (4, GALAH_NPIX_PER_ARM) or None if all arms missing.
+    Load a GBS spectrum (R42KNorm) and resample it onto the GALAH 4-arm model grid.
+    GBS spectra cover 4800-6800 A.
+    CCD1 (4713-4903) will be partially padded with 1.0.
+    CCD4 (7585-7887) will be entirely filled with 1.0.
+    Returns array of shape (4, GALAH_NPIX_PER_ARM).
     """
     from astropy.io import fits as afits
     from scipy.interpolate import interp1d
 
-    result = np.zeros((GALAH_N_ARMS, GALAH_NPIX_PER_ARM), dtype=np.float32)
-    any_loaded = False
+    try:
+        with afits.open(fits_path) as hdul:
+            ext = hdul[0] if hdul[0].data is not None else hdul[1]
+            flux = ext.data.astype(np.float32).ravel()
+            hdr = ext.header
+            crval = hdr.get("CRVAL1")
+            cdelt = hdr.get("CDELT1", hdr.get("CD1_1"))
+            if crval is None or cdelt is None:
+                return None
+            wave_obs = crval + cdelt * np.arange(len(flux))
+    except Exception:
+        return None
 
-    for arm_idx, path in enumerate(fits_paths):
-        if path is None:
-            continue
-        try:
-            with afits.open(path) as hdul:
-                # Extension 0: normalised flux; 1: unnormalised
-                # Prefer extension 0 (normalised); fall back to 1
-                flux = None
-                for ext_idx in [0, 1]:
-                    if hdul[ext_idx].data is not None:
-                        flux = hdul[ext_idx].data.astype(np.float32).ravel()
-                        break
-                if flux is None:
-                    continue
+    result = np.ones((GALAH_N_ARMS, GALAH_NPIX_PER_ARM), dtype=np.float32)
 
-                hdr      = hdul[0].header
-                crval    = hdr.get("CRVAL1", GALAH_ARM_RANGES[arm_idx][0])
-                cdelt    = hdr.get("CDELT1", hdr.get("CD1_1", 0.05))
-                naxis1   = len(flux)
-                wave_obs = crval + cdelt * np.arange(naxis1)
-
-            # Continuum normalise
-            norm_flux = _continuum_normalize(flux, wave_obs)
-            norm_flux = np.nan_to_num(norm_flux, nan=1.0, posinf=1.0, neginf=0.0)
-
-            # Resample onto uniform model grid
-            wmin, wmax = GALAH_ARM_RANGES[arm_idx]
-            wave_grid  = np.linspace(wmin, wmax, GALAH_NPIX_PER_ARM)
-            interp     = interp1d(wave_obs, norm_flux, kind="linear",
-                                  bounds_error=False, fill_value=1.0)
+    for arm_idx, (wmin, wmax) in enumerate(GALAH_ARM_RANGES):
+        wave_grid = np.linspace(wmin, wmax, GALAH_NPIX_PER_ARM)
+        
+        # Check if arm has any overlap with GBS range (approx 4800-6800)
+        overlap_min = max(wmin, wave_obs[0])
+        overlap_max = min(wmax, wave_obs[-1])
+        
+        if overlap_min < overlap_max:
+            interp = interp1d(wave_obs, flux, kind="linear",
+                              bounds_error=False, fill_value=1.0)
             result[arm_idx] = interp(wave_grid).astype(np.float32)
-            any_loaded = True
-
-        except Exception as exc:
-            pass   # arm not usable; leave as zeros
-
-    return result if any_loaded else None
+            
+    return result
 
 
 # ── Feature extraction ────────────────────────────────────────────────────────
@@ -335,53 +312,63 @@ def extract_galah_features(flux_4arm: np.ndarray) -> np.ndarray:
 
 # ── GBS × GALAH cross-match ───────────────────────────────────────────────────
 
-def crossmatch_gbs_galah(gbs_stars: list[dict], galah_csv: str) -> list[dict]:
+def crossmatch_gbs_galah(gbs_stars: list[dict], galah_cat: str) -> list[dict]:
     """
-    Cross-match GBS HIP IDs against GALAH DR4 catalogue (CSV or FITS).
+    Cross-match GBS stars against GALAH DR4 catalogue via Gaia DR3 source_id.
     Adds 'sobject_id' to each matched GBS entry.
     Returns only matched entries.
     """
-    if not os.path.exists(galah_csv):
-        print(f"  [WARN] GALAH catalogue not found at {galah_csv}.")
-        print("         Cannot cross-match — will attempt direct HIP lookup.")
+    if not os.path.exists(galah_cat):
+        print(f"  [WARN] GALAH catalogue not found at {galah_cat}.")
+        print("         Cannot cross-match.")
         return []
 
-    ext = os.path.splitext(galah_csv)[1].lower()
-    hip_to_sobject: dict[int, str] = {}
+    ext = os.path.splitext(galah_cat)[1].lower()
+    gaia_to_sobject: dict[int, str] = {}   # gaiadr3_source_id → sobject_id
 
-    if ext == ".csv":
-        with open(galah_csv, newline="") as fh:
+    if ext in (".fits", ".fit"):
+        from astropy.io import fits as afits
+        print("  Loading GALAH catalogue (FITS) …")
+        with afits.open(galah_cat, memmap=True) as hdul:
+            for ext_obj in hdul[1:]:
+                if ext_obj.data is None:
+                    continue
+                col_names = ext_obj.data.dtype.names
+                gaia_col = next((n for n in col_names
+                                 if "gaia" in n.lower() and "source" in n.lower()), None)
+                sob_col  = next((n for n in col_names
+                                 if "sobject" in n.lower()), None)
+                if gaia_col and sob_col:
+                    for row in ext_obj.data:
+                        try:
+                            gid = int(row[gaia_col])
+                            if gid > 0:
+                                gaia_to_sobject[gid] = str(row[sob_col]).strip()
+                        except Exception:
+                            pass
+                break
+
+    elif ext == ".csv":
+        print("  Loading GALAH catalogue (CSV) …")
+        with open(galah_cat, newline="") as fh:
             reader = csv.DictReader(fh)
             for row in reader:
-                hip_key = next((k for k in row if "hip" in k.lower()), None)
-                sob_key = next((k for k in row if "sobject" in k.lower()), None)
-                if hip_key and sob_key:
+                gaia_key = next((k for k in row if "gaia" in k.lower() and "source" in k.lower()), None)
+                sob_key  = next((k for k in row if "sobject" in k.lower()), None)
+                if gaia_key and sob_key:
                     try:
-                        hip_to_sobject[int(float(row[hip_key]))] = row[sob_key]
+                        gid = int(float(row[gaia_key]))
+                        if gid > 0:
+                            gaia_to_sobject[gid] = row[sob_key].strip()
                     except (ValueError, TypeError):
                         pass
 
-    elif ext in (".fits", ".fit"):
-        from astropy.io import fits as afits
-        with afits.open(galah_csv) as hdul:
-            for ext_obj in hdul[1:]:
-                if ext_obj.data is not None:
-                    names = [n.lower() for n in ext_obj.data.dtype.names]
-                    hip_col = next((n for n in ext_obj.data.dtype.names
-                                    if "hip" in n.lower()), None)
-                    sob_col = next((n for n in ext_obj.data.dtype.names
-                                    if "sobject" in n.lower()), None)
-                    if hip_col and sob_col:
-                        for row in ext_obj.data:
-                            try:
-                                hip_to_sobject[int(row[hip_col])] = str(row[sob_col])
-                            except Exception:
-                                pass
-                    break
+    print(f"  GALAH catalogue: {len(gaia_to_sobject)} entries with Gaia DR3 IDs")
 
     matched = []
     for star in gbs_stars:
-        sid = hip_to_sobject.get(star["hip_id"])
+        gaia_id = star.get("gaia_dr3", -1)
+        sid = gaia_to_sobject.get(gaia_id)
         if sid:
             matched.append({**star, "sobject_id": sid})
 
@@ -434,32 +421,20 @@ def run_evaluation(args):
     # -- Load GBS catalogue
     gbs_stars = load_gbs_catalogue(args.gbs_cat)
 
-    # -- Cross-match GBS against GALAH
-    matched = crossmatch_gbs_galah(gbs_stars, args.galah_catalogue)
-
-    if not matched:
-        print("\n  [WARN] No cross-matched stars available via catalogue lookup.")
-        print("         Falling back: attempting to load spectra for all GBS stars")
-        print("         by HIP ID lookup in the spectrum directory.")
-        # Provide empty sobject_id; spectrum loader will try hip-based filenames
-        matched = [{**s, "sobject_id": None} for s in gbs_stars]
-
-    # -- Inference
-    print(f"\n  Running inference on {len(matched)} stars …")
+    print(f"\n  Running inference on {len(gbs_stars)} GBS stars directly …")
 
     records      = []
     preds_list   = []
     labels_list  = []
     skipped      = 0
 
-    for star in matched:
-        sob_id = star.get("sobject_id")
-        if sob_id is None:
+    for star in gbs_stars:
+        fits_path = _find_gbs_fits(args.gbs_spectra, star["hip_id"])
+        if fits_path is None:
             skipped += 1
             continue
 
-        fits_paths = _find_galah_fits(args.galah_dir, sob_id)
-        flux_4arm  = load_galah_spectrum(fits_paths)
+        flux_4arm = load_gbs_spectrum_as_galah(fits_path)
         if flux_4arm is None:
             skipped += 1
             continue
@@ -491,7 +466,6 @@ def run_evaluation(args):
         labels_list.append(gbs_label)
         records.append({
             "hip_id":       star["hip_id"],
-            "sobject_id":   sob_id,
             "teff_gbs":     star["teff_gbs"],
             "logg_gbs":     star["logg_gbs"],
             "feh_gbs":      star.get("feh_gbs", np.nan),
@@ -564,12 +538,9 @@ def main():
     parser.add_argument("--gbs-cat",
         default="data/gbs/gbs_v3_params.fits",
         help="GBS v3 parameter catalogue FITS (from download_gbs.py)")
-    parser.add_argument("--galah-dir",
-        default="data/galah/raw/spectra",
-        help="Root directory containing GALAH DR4 CCD FITS spectra")
-    parser.add_argument("--galah-catalogue",
-        default="data/galah/raw/GALAH_DR4_main_allstar_v2.fits",
-        help="GALAH DR4 main catalogue (FITS or CSV) for HIP cross-match")
+    parser.add_argument("--gbs-spectra",
+        default="data/gbs/spectra",
+        help="Root directory containing GBS spectra (e.g. data/gbs/spectra)")
     parser.add_argument("--galah-processed",
         default="data/galah/processed",
         help="Directory containing label_stats.npy and feature_stats.npy")
@@ -581,6 +552,7 @@ def main():
     for p, label in [
         (args.weights,        "GALAH weights"),
         (args.gbs_cat,        "GBS catalogue"),
+        (args.gbs_spectra,    "GBS spectra dir"),
         (args.galah_processed,"GALAH processed dir"),
     ]:
         if not os.path.exists(p):
