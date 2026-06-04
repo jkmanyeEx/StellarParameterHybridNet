@@ -2,86 +2,133 @@
 Cross-match ID Enrichment
 =========================
 Fetches tmass_id and source_id (Gaia DR3) for the GALAH stars already
-in galah_dr4_allstar.csv, using DataCentral TAP in batches.
+in galah_dr4_allstar.csv, using DataCentral TAP.
 
-APOGEE needs no enrichment — apogee_id IS the 2MASS ID (2M{RA}{Dec}).
-GALAH-APOGEE matching is then done via 2MASS ID.
+Strategy: query the full DR4 table once (no IN clause) and join locally.
+This avoids HTTP 400 from oversized IN(...) clauses.
 
 Usage:
     python scripts/enrich_crossmatch_ids.py
-
-Output:
-    data/galah/raw/galah_dr4_allstar.csv   — original CSV + tmass_id + source_id columns added
-    (original is backed up to galah_dr4_allstar_backup.csv before modification)
 """
 
 import os
 import sys
 import csv
 import time
+import io
 import requests
 from datetime import datetime
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-GALAH_CSV    = os.path.join(BASE_DIR, "data", "galah", "raw", "galah_dr4_allstar.csv")
-BACKUP_CSV   = os.path.join(BASE_DIR, "data", "galah", "raw", "galah_dr4_allstar_backup.csv")
-TAP_URL      = "https://datacentral.org.au/vo/tap/sync"
-BATCH_SIZE   = 1000    # TAP IN-clause limit; keep ≤ 1000 to avoid query size issues
-RETRY_MAX    = 3
-RETRY_DELAY  = 5       # seconds between retries
+BASE_DIR  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+GALAH_CSV = os.path.join(BASE_DIR, "data", "galah", "raw", "galah_dr4_allstar.csv")
+BACKUP_CSV= os.path.join(BASE_DIR, "data", "galah", "raw", "galah_dr4_allstar_backup.csv")
+TAP_URL   = "https://datacentral.org.au/vo/tap/sync"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAP batch query
+# Step 1 — probe: check what columns exist in the table
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_ids_batch(sobject_ids):
+def probe_columns():
+    """Fetch one row to see available column names."""
+    query = "SELECT TOP 1 * FROM galah_dr4.mainstartable"
+    r = requests.post(
+        TAP_URL,
+        data={"REQUEST": "doQuery", "LANG": "ADQL",
+              "FORMAT": "csv", "QUERY": query},
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"Probe failed HTTP {r.status_code}:\n{r.text[:400]}")
+    lines = [l for l in r.text.strip().splitlines() if l.strip()]
+    if not lines:
+        raise RuntimeError("Probe returned empty result")
+    headers = lines[0].split(",")
+    print(f"  Available columns: {headers}")
+    return headers
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2 — fetch id columns for ALL stars in batches by sobject_id range
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_all_ids(sobject_ids, tmass_col, source_col):
     """
-    Query DataCentral TAP for tmass_id and source_id for a batch of sobject_ids.
+    Fetches tmass_col and source_col from TAP by splitting sobject_ids
+    into BETWEEN ranges (much shorter query than IN).
+
     Returns dict: sobject_id (int) -> {"tmass_id": str, "source_id": str}
     """
-    id_list = ", ".join(str(s) for s in sobject_ids)
-    query = f"""
-    SELECT sobject_id, tmass_id, source_id
-    FROM galah_dr4.mainstartable
-    WHERE sobject_id IN ({id_list})
-    """
+    if not tmass_col and not source_col:
+        print("  Neither tmass nor source_id column found. Nothing to fetch.")
+        return {}
 
-    for attempt in range(1, RETRY_MAX + 1):
-        try:
-            r = requests.post(
-                TAP_URL,
-                data={"REQUEST": "doQuery", "LANG": "ADQL",
-                      "FORMAT": "csv", "QUERY": query},
-                timeout=60,
-            )
-            if r.status_code != 200:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+    cols = "sobject_id"
+    if tmass_col:  cols += f", {tmass_col}"
+    if source_col: cols += f", {source_col}"
 
-            lines = [l for l in r.text.strip().splitlines() if l.strip()]
-            if len(lines) < 2:
-                return {}   # empty result
+    sorted_ids = sorted(sobject_ids)
+    BATCH      = 5000   # BETWEEN range covers 5000 IDs at a time
+    result     = {}
+    total      = (len(sorted_ids) + BATCH - 1) // BATCH
 
-            reader = csv.DictReader(lines)
-            result = {}
-            for row in reader:
-                sid = row.get("sobject_id", "").strip()
-                if not sid:
-                    continue
-                result[int(float(sid))] = {
-                    "tmass_id":  row.get("tmass_id",  "").strip(),
-                    "source_id": row.get("source_id", "").strip(),
-                }
-            return result
+    print(f"  Fetching {len(sorted_ids):,} IDs in {total} range-batches of ~{BATCH}...")
 
-        except Exception as e:
-            if attempt < RETRY_MAX:
-                print(f"    Attempt {attempt} failed ({e}), retrying in {RETRY_DELAY}s...")
-                time.sleep(RETRY_DELAY)
-            else:
-                print(f"    Batch failed after {RETRY_MAX} attempts: {e}")
-                return {}
+    for i in range(0, len(sorted_ids), BATCH):
+        chunk     = sorted_ids[i : i + BATCH]
+        id_min    = chunk[0]
+        id_max    = chunk[-1]
+        batch_num = i // BATCH + 1
+
+        query = (
+            f"SELECT {cols} "
+            f"FROM galah_dr4.mainstartable "
+            f"WHERE sobject_id BETWEEN {id_min} AND {id_max}"
+        )
+
+        for attempt in range(1, 4):
+            try:
+                r = requests.post(
+                    TAP_URL,
+                    data={"REQUEST": "doQuery", "LANG": "ADQL",
+                          "FORMAT": "csv", "QUERY": query},
+                    timeout=90,
+                )
+                if r.status_code != 200:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+
+                lines = [l for l in r.text.strip().splitlines() if l.strip()]
+                if len(lines) < 2:
+                    break   # empty range
+
+                reader = csv.DictReader(lines)
+                for row in reader:
+                    sid_raw = row.get("sobject_id", "").strip()
+                    if not sid_raw:
+                        continue
+                    try:
+                        sid = int(float(sid_raw))
+                    except ValueError:
+                        continue
+                    result[sid] = {
+                        "tmass_id":  row.get(tmass_col,  "").strip() if tmass_col  else "",
+                        "source_id": row.get(source_col, "").strip() if source_col else "",
+                    }
+                break   # success
+
+            except Exception as e:
+                if attempt < 3:
+                    print(f"    Batch {batch_num} attempt {attempt} failed ({e}), retrying...")
+                    time.sleep(5)
+                else:
+                    print(f"    Batch {batch_num} failed permanently: {e}")
+
+        print(f"  Batch {batch_num:>4}/{total}  "
+              f"(sobject_id {id_min}–{id_max})  "
+              f"→ {len(result):,} total fetched so far")
+        time.sleep(0.5)
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,82 +146,80 @@ def main():
         print(f"\n  ERROR: {GALAH_CSV} not found.")
         sys.exit(1)
 
-    # ── Read existing CSV ─────────────────────────────────────────────────────
+    # ── Read CSV ──────────────────────────────────────────────────────────────
     with open(GALAH_CSV, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     existing_cols = list(rows[0].keys()) if rows else []
 
-    print(f"\n  Stars in CSV       : {len(rows):,}")
-    print(f"  Existing columns   : {existing_cols}")
+    print(f"\n  Stars in CSV     : {len(rows):,}")
+    print(f"  Existing columns : {existing_cols}")
 
-    # Check if already enriched
+    # Short-circuit if already enriched
     if "tmass_id" in existing_cols and "source_id" in existing_cols:
         already = sum(
             1 for r in rows
-            if r.get("tmass_id", "").strip() not in ("", "None")
+            if r.get("tmass_id", "").strip() not in ("", "None", "nan")
         )
-        print(f"\n  tmass_id already present in CSV ({already:,} non-empty).")
+        print(f"\n  tmass_id already present ({already:,} non-empty).")
         if already > len(rows) * 0.8:
             print("  CSV appears fully enriched. Nothing to do.")
             sys.exit(0)
-        else:
-            print("  Only partially enriched — continuing to fill gaps.")
+        print("  Partially enriched — refetching gaps.")
 
     # ── Backup ────────────────────────────────────────────────────────────────
     import shutil
     shutil.copy2(GALAH_CSV, BACKUP_CSV)
-    print(f"\n  Backup saved       : {BACKUP_CSV}")
+    print(f"\n  Backup saved : {BACKUP_CSV}")
 
-    # ── Collect sobject_ids that need enrichment ───────────────────────────────
-    needs_enrichment = []
-    existing_map = {}   # sobject_id (int) -> {"tmass_id", "source_id"}
+    # ── Probe TAP to find real column names ───────────────────────────────────
+    print("\n  Probing DataCentral TAP for column names...")
+    try:
+        all_cols = probe_columns()
+    except Exception as e:
+        print(f"\n  ERROR probing TAP: {e}")
+        print("  Check network connection.")
+        sys.exit(1)
 
+    # Detect 2MASS and Gaia columns
+    all_cols_lower = [c.lower() for c in all_cols]
+
+    tmass_col = None
+    for candidate in ("tmass_id", "2mass_id", "tmassid", "twomass_id"):
+        if candidate in all_cols_lower:
+            tmass_col = all_cols[all_cols_lower.index(candidate)]
+            break
+
+    source_col = None
+    for candidate in ("source_id", "gaia_source_id", "gaiadr3_source_id",
+                      "dr3_source_id", "gaia_dr3_source_id"):
+        if candidate in all_cols_lower:
+            source_col = all_cols[all_cols_lower.index(candidate)]
+            break
+
+    print(f"  Using 2MASS column  : '{tmass_col}'")
+    print(f"  Using Gaia column   : '{source_col}'")
+
+    if not tmass_col and not source_col:
+        print("\n  ERROR: Neither tmass_id nor source_id found in DR4 table.")
+        print(f"  Available columns: {all_cols}")
+        sys.exit(1)
+
+    # ── Collect sobject_ids ───────────────────────────────────────────────────
+    sobject_ids = []
     for row in rows:
-        sid_raw = row.get("sobject_id", "").strip()
-        if not sid_raw:
-            continue
         try:
-            sid = int(float(sid_raw))
-        except ValueError:
-            continue
+            sobject_ids.append(int(float(row["sobject_id"])))
+        except (KeyError, ValueError):
+            pass
 
-        tmass  = row.get("tmass_id",  "").strip()
-        source = row.get("source_id", "").strip()
+    # ── Fetch from TAP ────────────────────────────────────────────────────────
+    fetched = fetch_all_ids(sobject_ids, tmass_col, source_col)
 
-        if tmass in ("", "None", "nan") or source in ("", "None", "nan"):
-            needs_enrichment.append(sid)
-        else:
-            existing_map[sid] = {"tmass_id": tmass, "source_id": source}
-
-    print(f"  Already have IDs   : {len(existing_map):,}")
-    print(f"  Need fetching      : {len(needs_enrichment):,}")
-
-    if not needs_enrichment:
-        print("\n  All stars already have tmass_id and source_id. Nothing to do.")
-        sys.exit(0)
-
-    # ── Batch query TAP ───────────────────────────────────────────────────────
-    print(f"\n  Fetching in batches of {BATCH_SIZE}...")
-    fetched_map = {}
-    total_batches = (len(needs_enrichment) + BATCH_SIZE - 1) // BATCH_SIZE
-
-    for i in range(0, len(needs_enrichment), BATCH_SIZE):
-        batch = needs_enrichment[i : i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        print(f"  Batch {batch_num:>4}/{total_batches}  ({len(batch)} stars)...", end="", flush=True)
-        result = fetch_ids_batch(batch)
-        fetched_map.update(result)
-        print(f"  got {len(result)} results")
-        time.sleep(0.3)   # polite rate limit
-
-    # Merge
-    full_map = {**existing_map, **fetched_map}
-
-    # Stats
-    with_tmass  = sum(1 for v in full_map.values() if v["tmass_id"]  not in ("", "None", "nan", ""))
-    with_source = sum(1 for v in full_map.values() if v["source_id"] not in ("", "None", "nan", ""))
-    print(f"\n  Stars with tmass_id  : {with_tmass:,} / {len(rows):,}")
-    print(f"  Stars with source_id : {with_source:,} / {len(rows):,}")
+    with_tmass  = sum(1 for v in fetched.values() if v["tmass_id"]  not in ("", "None", "nan"))
+    with_source = sum(1 for v in fetched.values() if v["source_id"] not in ("", "None", "nan"))
+    print(f"\n  Fetched entries    : {len(fetched):,}")
+    print(f"  With tmass_id      : {with_tmass:,}")
+    print(f"  With source_id     : {with_source:,}")
 
     # ── Write enriched CSV ────────────────────────────────────────────────────
     new_cols = [c for c in existing_cols if c not in ("tmass_id", "source_id")]
@@ -184,14 +229,13 @@ def main():
         writer = csv.DictWriter(f, fieldnames=new_cols)
         writer.writeheader()
         for row in rows:
-            sid_raw = row.get("sobject_id", "").strip()
             try:
-                sid = int(float(sid_raw))
-            except ValueError:
+                sid = int(float(row["sobject_id"]))
+            except (KeyError, ValueError):
                 sid = None
 
-            ids = full_map.get(sid, {"tmass_id": "", "source_id": ""}) if sid else \
-                  {"tmass_id": row.get("tmass_id", ""), "source_id": row.get("source_id", "")}
+            ids = fetched.get(sid, {"tmass_id": "", "source_id": ""}) \
+                  if sid is not None else {"tmass_id": "", "source_id": ""}
 
             new_row = {c: row.get(c, "") for c in new_cols}
             new_row["tmass_id"]  = ids["tmass_id"]
