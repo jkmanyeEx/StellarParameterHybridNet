@@ -80,6 +80,10 @@ class StellarValidatorGUI:
         self.root.configure(bg="#151522")
 
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        
+        default_dir = os.path.join(BASE_DIR, "weights", "mastar")
+        fallback_file = os.path.join(BASE_DIR, "weights", "stellar_hybrid_model.pth")
+        self.selected_weights_path = self.select_weights_dialog(default_dir, fallback_file)
         self.init_model()
 
         self.max_virtual_rows      = 0
@@ -98,20 +102,168 @@ class StellarValidatorGUI:
         self.root.bind("<Right>", lambda e: self.move_next())
         self.root.focus_set()
 
-    def init_model(self):
-        weights_path = os.path.join(BASE_DIR, "weights", "mastar", "stellar_hybrid_model.pth")
-        self.model = StellarParameterHybridNet().to(self.device)
-        if not os.path.exists(weights_path):
-            raise FileNotFoundError(
-                f"Model weights not found at: {weights_path}\n"
-                "Execute the MaStar training pipeline first."
+    # ── weight selection dialog ───────────────────────────────────────────────
+    def select_weights_dialog(self, default_dir, fallback_file=None):
+        import glob
+        from tkinter import filedialog, messagebox
+
+        # Scan directories
+        pth_files = []
+        if os.path.exists(default_dir):
+            pth_files = glob.glob(os.path.join(default_dir, "*.pth"))
+        
+        root_weights_dir = os.path.abspath(os.path.join(default_dir, ".."))
+        if not pth_files and os.path.exists(root_weights_dir):
+            pth_files = glob.glob(os.path.join(root_weights_dir, "*.pth"))
+            
+        if fallback_file and os.path.exists(fallback_file) and fallback_file not in pth_files:
+            pth_files.append(fallback_file)
+
+        pth_files = sorted(list(set(pth_files)))
+
+        # Create Toplevel Window
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Model Weights")
+        dialog.geometry("520x350")
+        dialog.configure(bg="#151522")
+        dialog.resizable(False, False)
+        
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        selected_path = tk.StringVar()
+        if pth_files:
+            if fallback_file and fallback_file in pth_files:
+                selected_path.set(fallback_file)
+            else:
+                selected_path.set(pth_files[0])
+                
+        cancelled = [True]
+
+        tk.Label(
+            dialog, 
+            text="Stellar Parameter HybridNet Checkpoints",
+            font=("Helvetica", 12, "bold"),
+            bg="#151522", fg="#ffffff",
+            pady=10
+        ).pack()
+        
+        tk.Label(
+            dialog,
+            text="Choose a model weight file (.pth) to load on initialization:",
+            font=("Helvetica", 9),
+            bg="#151522", fg="#aaaaff"
+        ).pack(pady=(0, 10))
+
+        frame = tk.Frame(dialog, bg="#12121f", bd=1, relief=tk.SOLID)
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+        
+        canvas = tk.Canvas(frame, bg="#12121f", highlightthickness=0)
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg="#12121f")
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        scrollbar.pack(side="right", fill="y")
+
+        if pth_files:
+            for filepath in pth_files:
+                filename = os.path.basename(filepath)
+                parent_dir = os.path.basename(os.path.dirname(filepath))
+                display_name = f"{filename}  ({parent_dir}/)" if parent_dir else filename
+                
+                rb = tk.Radiobutton(
+                    scroll_frame,
+                    text=display_name,
+                    variable=selected_path,
+                    value=filepath,
+                    font=("Consolas", 9),
+                    bg="#12121f", fg="#ffffff",
+                    selectcolor="#151522",
+                    activebackground="#1a1a2e", activeforeground="#ffffff",
+                    anchor="w", justify="left"
+                )
+                rb.pack(fill="x", anchor="w", padx=10, pady=4)
+        else:
+            tk.Label(
+                scroll_frame,
+                text="No weights files (*.pth) found.\nClick 'Browse Custom...' to locate one manually.",
+                font=("Helvetica", 9, "italic"),
+                bg="#12121f", fg="#ff6666",
+                padx=10, pady=20
+            ).pack(fill="both", expand=True)
+
+        def browse_custom():
+            file_selected = filedialog.askopenfilename(
+                parent=dialog,
+                title="Locate Model Weights Checkpoint",
+                filetypes=[("PyTorch weights", "*.pth")]
             )
-        ckpt = torch.load(weights_path, map_location=self.device)
+            if file_selected:
+                selected_path.set(file_selected)
+                confirm()
+
+        def confirm():
+            path = selected_path.get()
+            if not path or not os.path.exists(path):
+                messagebox.showerror("Error", "Selected file does not exist.", parent=dialog)
+                return
+            cancelled[0] = False
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        btn_bar = tk.Frame(dialog, bg="#151522")
+        btn_bar.pack(fill=tk.X, pady=15, padx=20)
+
+        tk.Button(
+            btn_bar, text="Browse Custom...", command=browse_custom,
+            bg="#1a1a2e", fg="#77ddff", activebackground="#223344", activeforeground="#ffffff",
+            font=("Helvetica", 9), relief=tk.GROOVE, bd=1, padx=8, pady=4
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            btn_bar, text="Cancel & Exit", command=cancel,
+            bg="#1a1a2e", fg="#ff7777", activebackground="#331122", activeforeground="#ffffff",
+            font=("Helvetica", 9), relief=tk.GROOVE, bd=1, padx=8, pady=4
+        ).pack(side=tk.RIGHT, padx=5)
+
+        tk.Button(
+            btn_bar, text="Load Weights", command=confirm,
+            bg="#1a1a2e", fg="#88ffcc", activebackground="#224433", activeforeground="#ffffff",
+            font=("Helvetica", 9, "bold"), relief=tk.GROOVE, bd=1, padx=12, pady=4
+        ).pack(side=tk.RIGHT, padx=5)
+
+        self.root.wait_window(dialog)
+        
+        if cancelled[0]:
+            print("[GUI] Initialization cancelled by user.")
+            sys.exit(0)
+            
+        return selected_path.get()
+
+    def init_model(self):
+        self.model = StellarParameterHybridNet().to(self.device)
+        ckpt = torch.load(self.selected_weights_path, map_location=self.device)
         if isinstance(ckpt, dict) and 'model_state' in ckpt:
             self.model.load_state_dict(ckpt['model_state'])
         else:
             self.model.load_state_dict(ckpt)
-        print(f"[GUI] Model loaded from: {weights_path}")
+        print(f"[GUI] Model loaded from: {self.selected_weights_path}")
         self.model.eval()
         self.per_line_attr = calculate_per_line_weight_attribution(self.model)
 
