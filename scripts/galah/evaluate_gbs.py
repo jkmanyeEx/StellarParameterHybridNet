@@ -172,7 +172,10 @@ def load_gbs_catalogue(fits_path: str) -> list[dict]:
             t = float(teff[i])   if teff  is not None else np.nan
             g = float(logg[i])   if logg  is not None else np.nan
             f = float(feh[i])    if feh   is not None else np.nan
-            h = int(hip[i])      if hip   is not None else -1
+            try:
+                h = int("".join(c for c in str(hip[i]) if c.isdigit())) if hip is not None else -1
+            except (ValueError, TypeError):
+                h = -1
 
             if not (np.isfinite(t) and np.isfinite(g)):
                 continue   # skip stars without fundamental params
