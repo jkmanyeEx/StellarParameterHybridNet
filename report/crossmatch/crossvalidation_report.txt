@@ -1,0 +1,71 @@
+======================================================================
+  GALAH x APOGEE  Cross-Survey Validation Report
+======================================================================
+  Generated      : 2026-06-04  14:28:46
+  CV set size    : 4 stars
+  Match methods  : 2mass: 4
+  Valid evaluated: 4 stars
+  Skipped        : 0 stars
+
+▶ [SECTION 1] GALAH Model — In-Survey Performance (cross-matched subset)
+   GALAH model vs GALAH labels
+
+   * T_eff (K):
+     MAE            : 4.6366 K
+     RMSE           : 5.7164 K
+     Relative Error : 0.09%
+     R2 Score       : 0.9999
+
+   * log g (dex):
+     MAE            : 0.0315 dex
+     RMSE           : 0.0353 dex
+     Relative Error : 0.98%
+     R2 Score       : 0.9973
+
+   * [Fe/H] (dex):
+     MAE            : 0.0192 dex
+     RMSE           : 0.0196 dex
+     Relative Error : 12.17%
+     R2 Score       : 0.9208
+
+▶ [SECTION 2] APOGEE Model — In-Survey Performance (cross-matched subset)
+   APOGEE model vs APOGEE labels
+
+   * T_eff (K):
+     MAE            : 22.2713 K
+     RMSE           : 23.0607 K
+     Relative Error : 0.44%
+     R2 Score       : 0.9990
+
+   * log g (dex):
+     MAE            : 0.0570 dex
+     RMSE           : 0.0602 dex
+     Relative Error : 2.14%
+     R2 Score       : 0.9923
+
+   * [Fe/H] (dex):
+     MAE            : 0.0214 dex
+     RMSE           : 0.0255 dex
+     Relative Error : 11.55%
+     R2 Score       : 0.9299
+
+▶ [SECTION 3] Inter-Model Agreement  (GALAH pred vs APOGEE pred)
+   Measures how consistently both models estimate parameters
+   for the SAME physical star observed in different wavelength regimes.
+   Lower values = stronger cross-survey consistency.
+
+   * T_eff (K):
+     Agreement MAE  : 19.2841 K
+     Agreement RMSE : 27.5922 K
+
+   * log g (dex):
+     Agreement MAE  : 0.0885 dex
+     Agreement RMSE : 0.1020 dex
+
+   * [Fe/H] (dex):
+     Agreement MAE  : 0.0334 dex
+     Agreement RMSE : 0.0378 dex
+
+======================================================================
+  END OF REPORT
+======================================================================

@@ -1,0 +1,29 @@
+======================================================================
+  GALAH Test Evaluation Report
+======================================================================
+
+  Weights file       : stellar_hybrid_model_n41386.pth
+  Evaluated samples  : 4139
+  Split type         : Test
+  Training set size  : 28970 stars
+  Label normalisation: label_stats.npy
+
+▶ [SECTION 1] Performance Metrics:
+   * T_eff  (K):
+     MAE            : 28.1611 K
+     RMSE           : 58.7859 K
+     Relative Error : 0.55%
+     R2 Score       : 0.9923
+
+   * log g  (dex):
+     MAE            : 0.0618 dex
+     RMSE           : 0.1027 dex
+     Relative Error : 2.27%
+     R2 Score       : 0.9888
+
+   * [Fe/H] (dex):
+     MAE            : 0.0307 dex
+     RMSE           : 0.0492 dex
+     Relative Error : 31.22%
+     R2 Score       : 0.9735
+

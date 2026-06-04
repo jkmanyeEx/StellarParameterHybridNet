@@ -4,7 +4,7 @@ GALAH DR4 x APOGEE DR17 Cross-match Counter
 Finds how many stars in your LOCAL trained data exist in both surveys.
 
 Matching strategy (tried in order):
-  1. Gaia DR3 source_id  — most precise, if present in both CSVs
+  1. Gaia DR4 source_id  — most precise, if present in both CSVs
   2. 2MASS ID            — GALAH tmass_id vs APOGEE apogee_id (2M... format)
 
 Usage:
@@ -94,7 +94,7 @@ def load_galah_catalog(trained_sobject_ids):
 
         gaia_col  = _pick_col(headers,
                               "source_id", "gaia_source_id",
-                              "gaiadr3_source_id", "gaia_dr3_source_id")
+                              "gaiaDR4_source_id", "gaia_DR4_source_id")
         tmass_col = _pick_col(headers,
                               "tmass_id", "2mass_id",
                               "tmassid",  "twomass_id")
@@ -159,9 +159,9 @@ def load_apogee_catalog(trained_apogee_ids):
         print(f"  Columns : {headers}")
 
         gaia_col = _pick_col(headers,
-                             "gaia_source_id", "gaiadr3_source_id",
-                             "gaiaedr3_source_id", "source_id",
-                             "gaia_dr3_source_id", "gaia_edr3_source_id")
+                             "gaia_source_id", "gaiaDR4_source_id",
+                             "gaiaeDR4_source_id", "source_id",
+                             "gaia_DR4_source_id", "gaia_eDR4_source_id")
         print(f"  Gaia column  : '{gaia_col}'")
         print(f"  2MASS column : 'apogee_id' (built-in — apogee_id IS the 2MASS ID)")
 

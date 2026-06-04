@@ -1,0 +1,99 @@
+======================================================================
+  GALAH Stellar HybridNet — XAI Physics Report
+======================================================================
+
+  Weights file             : stellar_hybrid_model_n41386.pth
+  Analyzed spectra         : 100
+  Training set size        : 28970 stars
+  Jacobian method          : ∂output/∂input (single backward pass)
+  IG method                : Integrated Gradients (Sundararajan et al., 2017)
+  IG interpolation steps   : 50
+  IG mean completeness err : 0.005924
+
+======================================================================
+▶ Section 1 — Jacobian Line Sensitivity
+======================================================================
+   H-alpha (CCD3):
+     T_eff sensitivity : 0.001009
+     log g sensitivity : 0.001330
+
+   Mg-I-b (CCD2):
+     T_eff sensitivity : 0.000027
+     log g sensitivity : 0.000031
+
+   H-beta  (CCD1):
+     T_eff sensitivity : 0.001189
+     log g sensitivity : 0.002304
+
+   Proof Ratio (normal)  : 1.1707
+   Proof Ratio (ablated) : 1.1684
+
+======================================================================
+▶ Section 2 — Integrated Gradients Line Attribution
+======================================================================
+   Method: attribution = (input - baseline) x mean(df/dx) along interpolation path.
+   Baseline: zero-flux (all pixels = 0).
+   Completeness axiom: sum(IG) approx f(input) - f(baseline).
+
+   H-alpha (CCD3):
+     |IG| T_eff : 0.000714
+     |IG| log g : 0.001044
+
+   Mg-I-b (CCD2):
+     |IG| T_eff : 0.000023
+     |IG| log g : 0.000032
+
+   H-beta  (CCD1):
+     |IG| T_eff : 0.000548
+     |IG| log g : 0.001336
+
+   Proof Ratio (IG)         : 1.2980
+   Mean completeness error  : 0.005924
+
+   Line                                   Jac T_eff     IG T_eff
+   ------------------------------------------------------------
+   H-alpha (CCD3)                          0.001009     0.000714
+   Mg-I-b (CCD2)                           0.000027     0.000023
+   H-beta  (CCD1)                          0.001189     0.000548
+
+======================================================================
+▶ Section 3 — Global Weight Attribution
+======================================================================
+   Architecture (GALAH):
+     CNN  branch output : 6400 D
+     Dense branch output: 128 D
+     Fusion (concat)    : 6528 D
+
+   Nominal dim ratio  : 128/6528 = 1.9608%
+   Learned L1 ratio   : 14.0509%
+   Learned / Nominal  : x7.17
+
+   The Dense branch occupies 14.05% of post-fusion
+   L1 weight despite contributing only 1.96% of
+   dimensions — 7.17x upweighted.
+
+======================================================================
+▶ Section 4 — Per-Line Weight Attribution (Dense Branch)
+======================================================================
+   H_alpha          11.47%  XXXXX
+   H_beta            9.71%  XXXX
+   Fe_I_6495         9.03%  XXXX
+   Fe_I_4882         8.10%  XXXX
+   Ca_I_6499         7.71%  XXX
+   K_I_7699          7.37%  XXX
+   O_I_7772          7.12%  XXX
+   Mg_I_5711         6.48%  XXX
+   Ba_II_4897        6.02%  XXX
+   Fe_I_5782         5.78%  XX
+   Fe_I_7748         5.57%  XX
+   Li_I_6708         5.38%  XX
+   Fe_I_5662         5.23%  XX
+   Fe_I_5862         4.75%  XX
+   Mg_I_4703         0.29%  
+
+======================================================================
+▶ Section 5 — Zero-Ablation Sensitivity
+======================================================================
+   T_eff  shift : 19.2206 K
+   log g  shift : 0.0236 dex
+   [Fe/H] shift : 0.0165 dex

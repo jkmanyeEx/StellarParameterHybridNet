@@ -1,7 +1,7 @@
 """
 Cross-match ID Enrichment
 =========================
-Fetches tmass_id and source_id (Gaia DR3) for the GALAH stars already
+Fetches tmass_id and source_id (Gaia DR4) for the GALAH stars already
 in galah_dr4_allstar.csv, using DataCentral TAP.
 
 Strategy: query the full DR4 table once (no IN clause) and join locally.
@@ -190,8 +190,8 @@ def main():
             break
 
     source_col = None
-    for candidate in ("source_id", "gaia_source_id", "gaiadr3_source_id",
-                      "dr3_source_id", "gaia_dr3_source_id"):
+    for candidate in ("source_id", "gaia_source_id", "gaiaDR4_source_id",
+                      "DR4_source_id", "gaia_DR4_source_id"):
         if candidate in all_cols_lower:
             source_col = all_cols[all_cols_lower.index(candidate)]
             break

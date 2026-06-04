@@ -119,7 +119,7 @@ def download_single_arm(sobject_id, arm_letter):
         → return (True, "skipped")
       - Otherwise attempt download.
 
-    DR parameter: galah_dr4  (confirmed working; galah_dr3 was incorrect)
+    DR parameter: galah_dr4  (confirmed working; galah_DR4 was incorrect)
     """
     ccd_num  = ARM_TO_CCD[arm_letter]
     filename = f"{sobject_id}{ccd_num}.fits"
