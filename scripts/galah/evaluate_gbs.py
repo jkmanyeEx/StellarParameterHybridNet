@@ -52,7 +52,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Project root on sys.path (adjust depth to match your layout) ──────────────
 _script_dir  = os.path.dirname(os.path.abspath(__file__))
-_project_root = _script_dir   # place script next to src/ directory
+_project_root = os.path.abspath(os.path.join(_script_dir, os.pardir, os.pardir))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
