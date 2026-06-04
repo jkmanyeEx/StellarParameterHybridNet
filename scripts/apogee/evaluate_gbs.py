@@ -99,7 +99,7 @@ def _load_model(weights_path: str, device):
     import torch
     model = StellarParameterHybridNet()
     ckpt  = torch.load(weights_path, map_location=device)
-    state = ckpt.get("model_state_dict", ckpt)
+    state = ckpt.get("model_state_dict", ckpt.get("model_state", ckpt))
     model.load_state_dict(state)
     model.to(device)
     model.eval()
