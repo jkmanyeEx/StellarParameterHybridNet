@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -10,15 +11,12 @@ from src.utils.apogee.config import DEVICE
 def calculate_statistical_metrics(y_true, y_pred):
     mae  = np.mean(np.abs(y_true - y_pred), axis=0)
     rmse = np.sqrt(np.mean((y_true - y_pred) ** 2, axis=0))
-
     ss_res = np.sum((y_true - y_pred) ** 2, axis=0)
     ss_tot = np.sum((y_true - np.mean(y_true, axis=0)) ** 2, axis=0)
     r2     = 1.0 - (ss_res / (ss_tot + 1e-8))
-
     rel_teff = np.mean(
         np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)
     ) * 100
-
     logg_true, logg_pred = y_true[:, 1], y_pred[:, 1]
     logg_safe = np.abs(logg_true) > 0.1
     rel_logg  = (
@@ -26,7 +24,6 @@ def calculate_statistical_metrics(y_true, y_pred):
                 / np.abs(logg_true[logg_safe])) * 100
         if np.any(logg_safe) else 0.0
     )
-
     feh_true, feh_pred = y_true[:, 2], y_pred[:, 2]
     feh_safe = np.abs(feh_true) > 0.01
     rel_feh  = (
@@ -34,16 +31,10 @@ def calculate_statistical_metrics(y_true, y_pred):
                 / np.abs(feh_true[feh_safe])) * 100
         if np.any(feh_safe) else 0.0
     )
-
     return mae, rmse, r2, np.array([rel_teff, rel_logg, rel_feh])
 
 
 def _load_train_meta(proc_dir, weights_path):
-    """
-    Return (n_train, n_val, n_test) from the checkpoint or train_meta.npy.
-    Falls back to (None, None, None) if neither source is available.
-    """
-    # Prefer checkpoint (most authoritative — written at the same time as the model)
     if os.path.exists(weights_path):
         try:
             ckpt = torch.load(weights_path, map_location='cpu')
@@ -51,7 +42,6 @@ def _load_train_meta(proc_dir, weights_path):
                 return int(ckpt['n_train']), int(ckpt['n_val']), int(ckpt['n_test'])
         except Exception:
             pass
-    # Fallback: train_meta.npy saved by engine.py
     meta_path = os.path.join(proc_dir, "train_meta.npy")
     if os.path.exists(meta_path):
         try:
@@ -60,6 +50,17 @@ def _load_train_meta(proc_dir, weights_path):
         except Exception:
             pass
     return None, None, None
+
+
+def _report_tag(weights_path):
+    """
+    Derive a filename tag from the weights path.
+      stellar_hybrid_model_n37500.pth  ->  '_n37500'
+      stellar_hybrid_model.pth         ->  ''
+    """
+    stem = os.path.splitext(os.path.basename(weights_path))[0]
+    m    = re.search(r'(_n\d+)$', stem)
+    return m.group(1) if m else ''
 
 
 def run_real_bulk_evaluation(weights_path=None):
@@ -83,30 +84,25 @@ def run_real_bulk_evaluation(weights_path=None):
                 "Execute the APOGEE data pipeline first."
             )
 
-    _label_stats_path   = os.path.join(proc_dir, "label_stats.npy")
-    _feature_stats_path = os.path.join(proc_dir, "feature_stats.npy")
-    for p in (_label_stats_path, _feature_stats_path):
+    for p in (os.path.join(proc_dir, "label_stats.npy"),
+              os.path.join(proc_dir, "feature_stats.npy")):
         if not os.path.exists(p):
             raise FileNotFoundError(
                 f"Normalisation statistics not found: {p}\n"
                 "Execute the APOGEE training pipeline first."
             )
 
-    _ls          = np.load(_label_stats_path)
+    _ls          = np.load(os.path.join(proc_dir, "label_stats.npy"))
     LABEL_MEAN   = _ls[0].astype(np.float32)
     LABEL_STD    = _ls[1].astype(np.float32)
-
-    _fs          = np.load(_feature_stats_path)
+    _fs          = np.load(os.path.join(proc_dir, "feature_stats.npy"))
     FEATURE_MEAN = _fs[0].astype(np.float32)
     FEATURE_STD  = _fs[1].astype(np.float32)
 
-    # ── 1. Load evaluation indices ────────────────────────────────────────────
-    # Prefer the sealed test set saved by engine.py (75/15/10 split).
-    # Fall back to reproducing the legacy 80/20 val split if not found.
+    # ── 1. Evaluation indices ─────────────────────────────────────────────────
     test_indices_path = os.path.join(proc_dir, "test_indices.npy")
-
     raw_labels = np.load(label_path)
-    n          = min(
+    n = min(
         np.load(flux_path,    mmap_mode='r').shape[0],
         np.load(feature_path, mmap_mode='r').shape[0],
         raw_labels.shape[0],
@@ -116,7 +112,7 @@ def run_real_bulk_evaluation(weights_path=None):
     if os.path.exists(test_indices_path):
         val_idx     = np.load(test_indices_path)
         split_label = "Test"
-        print(f"  [Split] Sealed test set loaded : {len(val_idx)} samples (10 %)")
+        print(f"  [Split] Sealed test set : {len(val_idx)} samples (10 %)")
     else:
         valid_mask    = (raw_labels[:, 0] > -900) & \
                         (raw_labels[:, 1] > -900) & \
@@ -124,11 +120,9 @@ def run_real_bulk_evaluation(weights_path=None):
         valid_indices = np.where(valid_mask)[0]
         rng           = np.random.default_rng(42)
         rng.shuffle(valid_indices)
-        train_size    = int(0.8 * len(valid_indices))
-        val_idx       = valid_indices[train_size:]
+        val_idx       = valid_indices[int(0.8 * len(valid_indices)):]
         split_label   = "Validation (legacy 80/20)"
-        print(f"  [Split] test_indices.npy not found — using legacy val split: "
-              f"{len(val_idx)} samples")
+        print(f"  [Split] Legacy val split : {len(val_idx)} samples")
 
     print(f"  {split_label} samples : {len(val_idx)}")
 
@@ -147,12 +141,11 @@ def run_real_bulk_evaluation(weights_path=None):
     print(f"  Model checkpoint : {weights_path}")
     model.eval()
 
-    # Load training metadata
-    n_train, n_val, n_test = _load_train_meta(proc_dir, weights_path)
+    n_train, n_val_m, n_test_m = _load_train_meta(proc_dir, weights_path)
     if n_train is not None:
         print(f"  Training set size  : {n_train} stars")
-        print(f"  Validation set     : {n_val} stars")
-        print(f"  Test set           : {n_test} stars")
+        print(f"  Validation set     : {n_val_m} stars")
+        print(f"  Test set           : {n_test_m} stars")
     else:
         print("  Training set size  : unknown (train_meta.npy not found)")
 
@@ -163,20 +156,16 @@ def run_real_bulk_evaluation(weights_path=None):
 
     pred_list = []
     for idx in tqdm(range(len(val_idx)), desc="APOGEE Evaluation"):
-        raw_flux  = fluxes[idx]                                   # (3, 2800)
+        raw_flux  = fluxes[idx]
         f_mean    = np.mean(raw_flux, axis=1, keepdims=True)
         f_std     = np.std(raw_flux,  axis=1, keepdims=True) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
-
         raw_feat  = features[idx]
         norm_feat = (raw_feat - FEATURE_MEAN) / (FEATURE_STD + 1e-8)
-
-        tensor_flux = torch.from_numpy(norm_flux).float().unsqueeze(0).to(DEVICE)
-        tensor_feat = torch.from_numpy(norm_feat).float().unsqueeze(0).to(DEVICE)
-
+        t_flux = torch.from_numpy(norm_flux).float().unsqueeze(0).to(DEVICE)
+        t_feat = torch.from_numpy(norm_feat).float().unsqueeze(0).to(DEVICE)
         with torch.no_grad():
-            norm_pred = model(tensor_flux, tensor_feat).cpu().numpy()[0]
-
+            norm_pred = model(t_flux, t_feat).cpu().numpy()[0]
         pred_list.append(norm_pred * LABEL_STD + LABEL_MEAN)
 
     preds = np.array(pred_list)
@@ -196,21 +185,23 @@ def run_real_bulk_evaluation(weights_path=None):
               f"{rel_err[i]:>9.2f}% | {r2[i]:>10.4f}")
     print(f"{'='*80}")
 
-    # ── 5. Report ─────────────────────────────────────────────────────────────
+    # ── 5. Report — filename includes weight tag to prevent overwriting ───────
+    tag      = _report_tag(weights_path)
     report_dir = os.path.join(base_dir, "report", "apogee")
     os.makedirs(report_dir, exist_ok=True)
-    out_path   = os.path.join(report_dir, "dataset_error_report.txt")
+    out_path = os.path.join(report_dir, f"dataset_error_report{tag}.txt")
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
         f.write(f"  APOGEE {split_label} Evaluation Report\n")
         f.write("=" * 70 + "\n\n")
+        f.write(f"  Weights file       : {os.path.basename(weights_path)}\n")
         f.write(f"  Evaluated samples  : {len(val_idx)}\n")
         f.write(f"  Split type         : {split_label}\n")
         if n_train is not None:
             f.write(f"  Training set size  : {n_train} stars\n")
-            f.write(f"  Validation set     : {n_val} stars\n")
-            f.write(f"  Test set           : {n_test} stars\n")
+            f.write(f"  Validation set     : {n_val_m} stars\n")
+            f.write(f"  Test set           : {n_test_m} stars\n")
         f.write(f"  Label normalisation: label_stats.npy\n\n")
         f.write("▶ [SECTION 1] Performance Metrics:\n")
         for i in range(3):

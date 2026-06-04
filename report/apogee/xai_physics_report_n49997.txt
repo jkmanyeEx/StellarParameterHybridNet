@@ -2,8 +2,9 @@
   APOGEE Stellar HybridNet — XAI Physics Report
 ======================================================================
 
+  Weights file             : stellar_hybrid_model_n49997.pth
   Analyzed spectra         : 100
-  Training set size        : 37497 stars
+  Training set size        : 11250 stars
   Jacobian method          : ∂output/∂input (single backward pass)
   IG method                : Integrated Gradients (Sundararajan et al., 2017)
   IG interpolation steps   : 50
@@ -49,7 +50,6 @@
    Proof Ratio (IG)         : 2.4108
    Mean completeness error  : 0.012576
 
-   Comparison — Jacobian vs. Integrated Gradients:
    Line                                   Jac T_eff     IG T_eff
    ------------------------------------------------------------
    Fe-I-15648 (Blue)                       0.001834     0.000811
@@ -70,7 +70,7 @@
 
    The Dense branch occupies 12.86% of post-fusion
    L1 weight despite contributing only 2.60% of
-   dimensions — 4.95x upweighted by training.
+   dimensions — 4.95x upweighted.
 
 ======================================================================
 ▶ Section 4 — Per-Line Weight Attribution (Dense Branch)
@@ -89,6 +89,6 @@
 ======================================================================
 ▶ Section 5 — Zero-Ablation Sensitivity
 ======================================================================
-   T_eff  shift : 51.3158 K
-   log g  shift : 0.0640 dex
-   [Fe/H] shift : 0.0305 dex
+   T_eff  shift : 51.3005 K
+   log g  shift : 0.0641 dex
+   [Fe/H] shift : 0.0304 dex

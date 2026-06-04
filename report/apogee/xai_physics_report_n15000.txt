@@ -1,0 +1,94 @@
+======================================================================
+  APOGEE Stellar HybridNet — XAI Physics Report
+======================================================================
+
+  Weights file             : stellar_hybrid_model_n15000.pth
+  Analyzed spectra         : 100
+  Training set size        : 11250 stars
+  Jacobian method          : ∂output/∂input (single backward pass)
+  IG method                : Integrated Gradients (Sundararajan et al., 2017)
+  IG interpolation steps   : 50
+  IG mean completeness err : 0.006767
+
+======================================================================
+▶ Section 1 — Jacobian Line Sensitivity
+======================================================================
+   Fe-I-15648 (Blue):
+     T_eff sensitivity : 0.002181
+     log g sensitivity : 0.002771
+
+   Br-14 (Green):
+     T_eff sensitivity : 0.003255
+     log g sensitivity : 0.006671
+
+   Br-11 (Red):
+     T_eff sensitivity : 0.002011
+     log g sensitivity : 0.006114
+
+   Proof Ratio (normal)  : 1.1592
+   Proof Ratio (ablated) : 1.2528
+
+======================================================================
+▶ Section 2 — Integrated Gradients Line Attribution
+======================================================================
+   Method: attribution = (input - baseline) × mean(∂f/∂x) along interpolation path.
+   Baseline: zero-flux (all pixels = 0).
+   Completeness axiom: Σ IG ≈ f(input) - f(baseline).
+
+   Fe-I-15648 (Blue):
+     |IG| T_eff : 0.000939
+     |IG| log g : 0.001049
+
+   Br-14 (Green):
+     |IG| T_eff : 0.003506
+     |IG| log g : 0.005210
+
+   Br-11 (Red):
+     |IG| T_eff : 0.000642
+     |IG| log g : 0.002303
+
+   Proof Ratio (IG)         : 2.8024
+   Mean completeness error  : 0.006767
+
+   Line                                   Jac T_eff     IG T_eff
+   ------------------------------------------------------------
+   Fe-I-15648 (Blue)                       0.002181     0.000939
+   Br-14 (Green)                           0.003255     0.003506
+   Br-11 (Red)                             0.002011     0.000642
+
+======================================================================
+▶ Section 3 — Global Weight Attribution
+======================================================================
+   Architecture (APOGEE):
+     CNN  branch output : 4800 D
+     Dense branch output: 128 D
+     Fusion (concat)    : 4928 D
+
+   Nominal dim ratio  : 128/4928 = 2.5974%
+   Learned L1 ratio   : 18.5989%
+   Learned / Nominal  : x7.16
+
+   The Dense branch occupies 18.60% of post-fusion
+   L1 weight despite contributing only 2.60% of
+   dimensions — 7.16x upweighted.
+
+======================================================================
+▶ Section 4 — Per-Line Weight Attribution (Dense Branch)
+======================================================================
+   Al_I_16755       10.91%  █████
+   Fe_I_16040       10.82%  █████
+   Br_11            10.81%  █████
+   Si_I_15960       10.62%  █████
+   Fe_I_15200       10.32%  █████
+   Br_14             9.89%  ████
+   Mg_I_15749        9.88%  ████
+   Si_I_16094        9.19%  ████
+   Si_I_16680        8.93%  ████
+   Fe_I_15648        8.63%  ████
+
+======================================================================
+▶ Section 5 — Zero-Ablation Sensitivity
+======================================================================
+   T_eff  shift : 32.2952 K
+   log g  shift : 0.0358 dex
+   [Fe/H] shift : 0.0216 dex

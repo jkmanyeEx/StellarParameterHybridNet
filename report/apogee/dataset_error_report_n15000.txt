@@ -1,0 +1,31 @@
+======================================================================
+  APOGEE Test Evaluation Report
+======================================================================
+
+  Weights file       : stellar_hybrid_model_n15000.pth
+  Evaluated samples  : 1500
+  Split type         : Test
+  Training set size  : 11250 stars
+  Validation set     : 2250 stars
+  Test set           : 1500 stars
+  Label normalisation: label_stats.npy
+
+▶ [SECTION 1] Performance Metrics:
+   * T_eff  (K):
+     MAE            : 18.4930 K
+     RMSE           : 32.8749 K
+     Relative Error : 0.37%
+     R2 Score       : 0.9975
+
+   * log g  (dex):
+     MAE            : 0.0429 dex
+     RMSE           : 0.0636 dex
+     Relative Error : 2.31%
+     R2 Score       : 0.9952
+
+   * [Fe/H] (dex):
+     MAE            : 0.0154 dex
+     RMSE           : 0.0250 dex
+     Relative Error : 14.62%
+     R2 Score       : 0.9924
+

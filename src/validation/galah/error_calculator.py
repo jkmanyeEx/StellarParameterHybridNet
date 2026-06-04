@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -6,26 +7,26 @@ from tqdm import tqdm
 from src.models.galah.hybrid_net import StellarParameterHybridNet
 from src.utils.galah.config import DEVICE
 
-def calculate_statistical_metrics(y_true, y_pred):
-    mae = np.mean(np.abs(y_true - y_pred), axis=0)
-    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2, axis=0))
 
+def calculate_statistical_metrics(y_true, y_pred):
+    mae  = np.mean(np.abs(y_true - y_pred), axis=0)
+    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2, axis=0))
     ss_res = np.sum((y_true - y_pred) ** 2, axis=0)
     ss_tot = np.sum((y_true - np.mean(y_true, axis=0)) ** 2, axis=0)
-    r2 = 1.0 - (ss_res / (ss_tot + 1e-8))
-
-    rel_teff = np.mean(np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)) * 100
-
+    r2     = 1.0 - (ss_res / (ss_tot + 1e-8))
+    rel_teff = np.mean(
+        np.abs(y_true[:, 0] - y_pred[:, 0]) / (np.abs(y_true[:, 0]) + 1e-8)
+    ) * 100
     logg_true, logg_pred = y_true[:, 1], y_pred[:, 1]
     logg_safe = np.abs(logg_true) > 0.1
-    rel_logg = np.mean(np.abs(logg_true[logg_safe] - logg_pred[logg_safe]) / np.abs(logg_true[logg_safe])) * 100 \
-               if np.any(logg_safe) else 0.0
-
+    rel_logg  = (np.mean(np.abs(logg_true[logg_safe] - logg_pred[logg_safe])
+                         / np.abs(logg_true[logg_safe])) * 100
+                 if np.any(logg_safe) else 0.0)
     feh_true, feh_pred = y_true[:, 2], y_pred[:, 2]
-    safe_mask = np.abs(feh_true) > 0.01
-    rel_feh = np.mean(np.abs(feh_true[safe_mask] - feh_pred[safe_mask]) / np.abs(feh_true[safe_mask])) * 100 \
-              if np.any(safe_mask) else 0.0
-
+    feh_safe = np.abs(feh_true) > 0.01
+    rel_feh  = (np.mean(np.abs(feh_true[feh_safe] - feh_pred[feh_safe])
+                        / np.abs(feh_true[feh_safe])) * 100
+                if np.any(feh_safe) else 0.0)
     return mae, rmse, r2, np.array([rel_teff, rel_logg, rel_feh])
 
 
@@ -47,9 +48,16 @@ def _load_train_meta(proc_dir, weights_path):
     return None, None, None
 
 
+def _report_tag(weights_path):
+    """stellar_hybrid_model_n29368.pth -> '_n29368',  *.pth -> ''"""
+    stem = os.path.splitext(os.path.basename(weights_path))[0]
+    m    = re.search(r'(_n\d+)$', stem)
+    return m.group(1) if m else ''
+
+
 def run_real_bulk_evaluation(weights_path=None):
     print(f"\n{'='*70}")
-    print("  GALAH Validation Split Evaluation")
+    print("  GALAH Evaluation")
     print(f"{'='*70}")
     print(f"  Compute device : {DEVICE}")
 
@@ -58,7 +66,8 @@ def run_real_bulk_evaluation(weights_path=None):
     flux_path    = os.path.join(proc_dir, "X_flux_clean.npy")
     feature_path = os.path.join(proc_dir, "X_features_physical.npy")
     label_path   = os.path.join(proc_dir, "Y_labels.npy")
-    weights_path = weights_path or os.path.join(base_dir, "weights", "galah", "stellar_hybrid_model.pth")
+    weights_path = weights_path or os.path.join(
+        base_dir, "weights", "galah", "stellar_hybrid_model.pth")
 
     for p in (flux_path, feature_path, label_path):
         if not os.path.exists(p):
@@ -66,55 +75,47 @@ def run_real_bulk_evaluation(weights_path=None):
                 f"Processed GALAH file not found: {p}\n"
                 "Execute the GALAH data pipeline first."
             )
-
-    _label_stats_path   = os.path.join(proc_dir, "label_stats.npy")
-    _feature_stats_path = os.path.join(proc_dir, "feature_stats.npy")
-    for p in (_label_stats_path, _feature_stats_path):
+    for p in (os.path.join(proc_dir, "label_stats.npy"),
+              os.path.join(proc_dir, "feature_stats.npy")):
         if not os.path.exists(p):
             raise FileNotFoundError(
                 f"Normalisation statistics not found: {p}\n"
                 "Execute the GALAH training pipeline first."
             )
 
-    _ls = np.load(_label_stats_path)
+    _ls = np.load(os.path.join(proc_dir, "label_stats.npy"))
     LABEL_MEAN = _ls[0].astype(np.float32)
     LABEL_STD  = _ls[1].astype(np.float32)
-
-    _fs = np.load(_feature_stats_path)
+    _fs = np.load(os.path.join(proc_dir, "feature_stats.npy"))
     FEATURE_MEAN = _fs[0].astype(np.float32)
     FEATURE_STD  = _fs[1].astype(np.float32)
 
-    # ── 1. Load test indices (sealed split saved by engine.py) ──────────────
-    # If test_indices.npy exists, use it (proper held-out test set).
-    # Otherwise fall back to reproducing the val split for backward compatibility.
+    # ── 1. Evaluation indices ─────────────────────────────────────────────────
     test_indices_path = os.path.join(proc_dir, "test_indices.npy")
-
-    _flux_n    = np.load(flux_path,    mmap_mode='r').shape[0]
-    _feat_n    = np.load(feature_path, mmap_mode='r').shape[0]
     raw_labels = np.load(label_path)
-    n          = min(_flux_n, _feat_n, raw_labels.shape[0])
+    n = min(np.load(flux_path,    mmap_mode='r').shape[0],
+            np.load(feature_path, mmap_mode='r').shape[0],
+            raw_labels.shape[0])
     raw_labels = raw_labels[:n]
 
     if os.path.exists(test_indices_path):
-        val_idx = np.load(test_indices_path)
+        val_idx     = np.load(test_indices_path)
         split_label = "Test"
-        print(f"  [Split] Using sealed test set: {len(val_idx)} samples")
+        print(f"  [Split] Sealed test set : {len(val_idx)} samples")
     else:
-        # Legacy fallback: reproduce old 80/20 val split
         valid_mask    = (raw_labels[:, 0] > -900) & \
                         (raw_labels[:, 1] > -900) & \
                         (raw_labels[:, 2] > -900)
         valid_indices = np.where(valid_mask)[0]
         rng = np.random.default_rng(42)
         rng.shuffle(valid_indices)
-        train_size = int(0.8 * len(valid_indices))
-        val_idx    = valid_indices[train_size:]
+        val_idx     = valid_indices[int(0.8 * len(valid_indices)):]
         split_label = "Validation (legacy 80/20)"
-        print(f"  [Split] test_indices.npy not found — using legacy val split: "
-              f"{len(val_idx)} samples")
+        print(f"  [Split] Legacy val split : {len(val_idx)} samples")
 
     print(f"  {split_label} samples : {len(val_idx)}")
 
+    # ── 2. Model ──────────────────────────────────────────────────────────────
     if not os.path.exists(weights_path):
         raise FileNotFoundError(
             f"Model weights not found at: {weights_path}\n"
@@ -135,44 +136,34 @@ def run_real_bulk_evaluation(weights_path=None):
     else:
         print("  Training set size  : unknown (train_meta.npy not found)")
 
-    # Load validation data using mmap to avoid loading the full array into RAM
+    # ── 3. Inference ──────────────────────────────────────────────────────────
     fluxes   = np.load(flux_path,    mmap_mode='r')[val_idx]
     features = np.load(feature_path, mmap_mode='r')[val_idx]
     truths   = raw_labels[val_idx]
 
     pred_list = []
-    
-    # Run evaluation
     for idx in tqdm(range(len(val_idx)), desc="GALAH Evaluation"):
-        # 1. Z-score flux per arm
-        raw_flux = fluxes[idx] # (4, 4000)
-        f_mean = np.mean(raw_flux, axis=1, keepdims=True)
-        f_std  = np.std(raw_flux, axis=1, keepdims=True) + 1e-8
+        raw_flux  = fluxes[idx]
+        f_mean    = np.mean(raw_flux, axis=1, keepdims=True)
+        f_std     = np.std(raw_flux,  axis=1, keepdims=True) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
-
-        # 2. Normalize features
-        raw_feat = features[idx]
+        raw_feat  = features[idx]
         norm_feat = (raw_feat - FEATURE_MEAN) / (FEATURE_STD + 1e-8)
-
-        # To tensor
-        tensor_flux = torch.from_numpy(norm_flux).float().unsqueeze(0).to(DEVICE) # (1, 4, 4000)
-        tensor_feat = torch.from_numpy(norm_feat).float().unsqueeze(0).to(DEVICE) # (1, 45)
-
+        t_flux = torch.from_numpy(norm_flux).float().unsqueeze(0).to(DEVICE)
+        t_feat = torch.from_numpy(norm_feat).float().unsqueeze(0).to(DEVICE)
         with torch.no_grad():
-            norm_pred = model(tensor_flux, tensor_feat).cpu().numpy()[0]
-
-        real_pred = norm_pred * LABEL_STD + LABEL_MEAN
-        pred_list.append(real_pred)
+            norm_pred = model(t_flux, t_feat).cpu().numpy()[0]
+        pred_list.append(norm_pred * LABEL_STD + LABEL_MEAN)
 
     preds = np.array(pred_list)
 
+    # ── 4. Metrics ────────────────────────────────────────────────────────────
     mae, rmse, r2, rel_err = calculate_statistical_metrics(truths, preds)
-
     parameters = ["T_eff  (K)", "log g  (dex)", "[Fe/H] (dex)"]
-    units      = ["K",          "dex",          "dex"]
+    units      = ["K", "dex", "dex"]
 
     print(f"\n{'='*80}")
-    print("  GALAH Validation Split — Performance Summary")
+    print(f"  GALAH {split_label} — Performance Summary")
     print(f"{'='*80}")
     print(f"  {'Parameter':<20} | {'MAE':>10} | {'RMSE':>10} | {'Rel. Error':>10} | {'R²':>10}")
     print(f"  {'-'*76}")
@@ -181,20 +172,22 @@ def run_real_bulk_evaluation(weights_path=None):
               f"{rel_err[i]:>9.2f}% | {r2[i]:>10.4f}")
     print(f"{'='*80}")
 
+    # ── 5. Report — filename includes weight tag ──────────────────────────────
+    tag        = _report_tag(weights_path)
     report_dir = os.path.join(base_dir, "report", "galah")
     os.makedirs(report_dir, exist_ok=True)
-    out_path = os.path.join(report_dir, "dataset_error_report.txt")
+    out_path   = os.path.join(report_dir, f"dataset_error_report{tag}.txt")
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
         f.write(f"  GALAH {split_label} Evaluation Report\n")
         f.write("=" * 70 + "\n\n")
+        f.write(f"  Weights file       : {os.path.basename(weights_path)}\n")
         f.write(f"  Evaluated samples  : {len(val_idx)}\n")
         f.write(f"  Split type         : {split_label}\n")
         if n_train is not None:
             f.write(f"  Training set size  : {n_train} stars\n")
         f.write(f"  Label normalisation: label_stats.npy\n\n")
-        
         f.write("▶ [SECTION 1] Performance Metrics:\n")
         for i in range(3):
             f.write(f"   * {parameters[i]}:\n")

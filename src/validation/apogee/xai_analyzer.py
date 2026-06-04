@@ -4,17 +4,11 @@ APOGEE HybridNet XAI Analysis.
 Two complementary attribution methods:
 
 1. Jacobian Sensitivity (∂output/∂input)
-   — Single backward pass per sample.
-   — Measures local gradient magnitude at the observed spectrum.
-
 2. Integrated Gradients (Sundararajan et al., 2017)
-   — Accumulates gradients along a straight path from a zero-flux
-     baseline to the observed spectrum over N interpolation steps.
-   — Satisfies Completeness Axiom: Σ IG ≈ f(input) - f(baseline).
-   — ~N × cost of Jacobian (default N=50).
 """
 
 import os
+import re
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -22,15 +16,14 @@ from tqdm import tqdm
 from src.models.apogee.hybrid_net import StellarParameterHybridNet
 from src.data.apogee.extract_features import extract_30d_features_single_star
 
-# ── re-export for GUI ─────────────────────────────────────────────────────────
+
 def extract_30d_features_live_eval(wave, norm_flux):
     return extract_30d_features_single_star(wave, norm_flux)
 
 
-# ── Architecture constants ────────────────────────────────────────────────────
-CNN_BRANCH_DIM   = 4800   # 3 arms × 1600
+CNN_BRANCH_DIM   = 4800
 DENSE_BRANCH_DIM = 128
-FUSION_DIM       = CNN_BRANCH_DIM + DENSE_BRANCH_DIM   # 4928
+FUSION_DIM       = CNN_BRANCH_DIM + DENSE_BRANCH_DIM
 
 LINE_NAMES_30D = [
     "Fe_I_15200", "Fe_I_15648", "Mg_I_15749",
@@ -39,10 +32,14 @@ LINE_NAMES_30D = [
 ]
 
 
-# ── Weight attribution helpers ────────────────────────────────────────────────
+def _report_tag(weights_path):
+    """stellar_hybrid_model_n37500.pth -> '_n37500',  *.pth -> ''"""
+    stem = os.path.splitext(os.path.basename(weights_path))[0]
+    m    = re.search(r'(_n\d+)$', stem)
+    return m.group(1) if m else ''
+
 
 def calculate_per_line_weight_attribution(model):
-    """L1 weight share of each 30D absorption line in the Dense branch."""
     try:
         first_weight = None
         for name, param in model.named_parameters():
@@ -68,10 +65,6 @@ def calculate_per_line_weight_attribution(model):
 
 
 def calculate_eval_model_weight_ratio(model):
-    """
-    Compute learned vs nominal dimension ratio at the first post-fusion layer.
-    Returns (learned_ratio %, nominal_ratio %).
-    """
     try:
         target = None
         for name, param in model.named_parameters():
@@ -80,13 +73,12 @@ def calculate_eval_model_weight_ratio(model):
                 target = param.detach().cpu().numpy()
                 break
         if target is None:
-            print(f"   [XAI] ERROR: no Linear(*, {FUSION_DIM}) found.")
             return -1.0, -1.0
         total     = np.sum(np.abs(target))
         if total == 0:
             return 0.0, 0.0
-        cnn_mag   = np.sum(np.abs(target[:, :CNN_BRANCH_DIM]))
         dense_mag = np.sum(np.abs(target[:, CNN_BRANCH_DIM:]))
+        cnn_mag   = np.sum(np.abs(target[:, :CNN_BRANCH_DIM]))
         learned   = float(dense_mag / total * 100)
         nominal   = float(DENSE_BRANCH_DIM / FUSION_DIM * 100)
         print(f"   [XAI] Fusion dim          : {FUSION_DIM} D "
@@ -102,34 +94,15 @@ def calculate_eval_model_weight_ratio(model):
         return -1.0, -1.0
 
 
-# ── Integrated Gradients ──────────────────────────────────────────────────────
-
 def integrated_gradients_apogee(model, norm_flux_3arm, feat_tensor,
                                  param_idx, device, n_steps=50):
-    """
-    Compute Integrated Gradients for a single APOGEE spectrum.
-
-    Parameters
-    ----------
-    norm_flux_3arm : np.ndarray  shape (3, 2800)
-    feat_tensor    : torch.Tensor shape (1, 30)
-    param_idx      : int  0=T_eff, 1=log g, 2=[Fe/H]
-    n_steps        : int  interpolation steps
-
-    Returns
-    -------
-    ig    : np.ndarray  shape (3, 2800)
-    delta : float       completeness residual |Σ IG - Δf|
-    """
     model.eval()
-    x      = torch.from_numpy(norm_flux_3arm).float().unsqueeze(0).to(device)  # (1,3,2800)
+    x      = torch.from_numpy(norm_flux_3arm).float().unsqueeze(0).to(device)
     x_base = torch.zeros_like(x)
-
     with torch.no_grad():
         f_input    = model(x,      feat_tensor)[0, param_idx].item()
         f_baseline = model(x_base, feat_tensor)[0, param_idx].item()
-    delta_f = f_input - f_baseline
-
+    delta_f  = f_input - f_baseline
     grad_acc = torch.zeros_like(x)
     for k in range(n_steps):
         alpha    = (k + 0.5) / n_steps
@@ -139,15 +112,10 @@ def integrated_gradients_apogee(model, norm_flux_3arm, feat_tensor,
         g[0, param_idx] = 1.0
         pred.backward(g)
         grad_acc += x_interp.grad.detach()
-
-    ig_tensor = (x - x_base) * grad_acc / n_steps
-    ig        = ig_tensor.squeeze(0).cpu().numpy()   # (3, 2800)
-    delta     = abs(ig.sum() - delta_f)
-
+    ig    = ((x - x_base) * grad_acc / n_steps).squeeze(0).cpu().numpy()
+    delta = abs(ig.sum() - delta_f)
     return ig, delta
 
-
-# ── Main XAI pipeline ─────────────────────────────────────────────────────────
 
 def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=None):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -162,9 +130,9 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
     proc_dir = os.path.join(base_dir, "data", "apogee", "processed")
 
     for fname, label in [
-        ("label_stats.npy",   "label_stats.npy"),
-        ("X_flux_clean.npy",  "preprocessed flux"),
-        ("standard_wave.npy", "standard_wave.npy"),
+        ("label_stats.npy",  "label_stats.npy"),
+        ("X_flux_clean.npy", "preprocessed flux"),
+        ("standard_wave.npy","standard_wave.npy"),
     ]:
         p = os.path.join(proc_dir, fname)
         if not os.path.exists(p):
@@ -173,13 +141,11 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
                 "Execute the APOGEE preprocessing and training pipelines first."
             )
 
-    _ls       = np.load(os.path.join(proc_dir, "label_stats.npy"))
-    LABEL_STD = _ls[1].astype(np.float32)
+    LABEL_STD = np.load(os.path.join(proc_dir, "label_stats.npy"))[1].astype(np.float32)
     print(f"   [XAI] Label statistics loaded — std={LABEL_STD}")
 
-    _default = os.path.join(base_dir, "weights", "apogee", "stellar_hybrid_model.pth")
     if weights_path is None:
-        weights_path = _default
+        weights_path = os.path.join(base_dir, "weights", "apogee", "stellar_hybrid_model.pth")
     if not os.path.exists(weights_path):
         raise FileNotFoundError(
             f"Model weights not found at: {weights_path}\n"
@@ -194,22 +160,20 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
     print(f"   [XAI] Weights loaded from: {weights_path}")
     model.eval()
 
-    # Load training metadata
-    meta_path = os.path.join(proc_dir, "train_meta.npy")
     n_train = None
+    meta_path = os.path.join(proc_dir, "train_meta.npy")
     if os.path.exists(meta_path):
         try:
-            m      = np.load(meta_path)
-            n_train, n_val_m, n_test_m = int(m[0]), int(m[1]), int(m[2])
+            m = np.load(meta_path)
+            n_train = int(m[0])
             print(f"   [XAI] Training set size : {n_train} stars")
         except Exception:
             pass
     if n_train is None:
-        # try checkpoint
         try:
-            ckpt = torch.load(weights_path, map_location='cpu')
-            if isinstance(ckpt, dict) and 'n_train' in ckpt:
-                n_train = int(ckpt['n_train'])
+            _c = torch.load(weights_path, map_location='cpu')
+            if isinstance(_c, dict) and 'n_train' in _c:
+                n_train = int(_c['n_train'])
                 print(f"   [XAI] Training set size : {n_train} stars")
         except Exception:
             pass
@@ -225,36 +189,31 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
     sample_indices = np.random.choice(total_available, size=actual_samples, replace=False)
 
     absorption_lines = {
-        "Fe-I-15648 (Blue)":  (15610.0, 15690.0, 0),
-        "Br-14 (Green)":      (15850.0, 15920.0, 1),
-        "Br-11 (Red)":        (16780.0, 16840.0, 2),
+        "Fe-I-15648 (Blue)": (15610.0, 15690.0, 0),
+        "Br-14 (Green)":     (15850.0, 15920.0, 1),
+        "Br-11 (Red)":       (16780.0, 16840.0, 2),
     }
 
-    # Accumulators
     jac_acc         = np.zeros((3, 3, 2800))
     jac_acc_ablated = np.zeros((3, 3, 2800))
     ig_acc          = np.zeros((3, 3, 2800))
-    baseline_preds, ablated_preds = [], []
-    ig_completeness_errors = []
+    baseline_preds, ablated_preds, ig_completeness_errors = [], [], []
     valid_count = 0
 
-    print(f"   [XAI] Running Jacobian + Integrated Gradients "
-          f"over {actual_samples} spectra...\n")
+    print(f"   [XAI] Running Jacobian + IG over {actual_samples} spectra...\n")
 
     for idx in tqdm(sample_indices, desc="APOGEE XAI (Jacobian + IG)"):
-        raw_flux  = X_flux_all[idx]                          # (3, 2800)
+        raw_flux  = X_flux_all[idx]
         f_mean    = np.mean(raw_flux, axis=1, keepdims=True)
         f_std     = np.std(raw_flux,  axis=1, keepdims=True) + 1e-8
         norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
-
         features_30d = extract_30d_features_live_eval(wave_grid, raw_flux)
         feat_tensor  = torch.from_numpy(features_30d).float().unsqueeze(0).to(device)
         zero_feat    = torch.zeros_like(feat_tensor)
         norm_flux_t  = torch.from_numpy(norm_flux).float()
 
-        # ── Jacobian (normal) ────────────────────────────────────────────────
         input_base = norm_flux_t.unsqueeze(0).to(device).requires_grad_(True)
-        pred       = model(input_base, feat_tensor)
+        pred = model(input_base, feat_tensor)
         baseline_preds.append(pred.detach().cpu().numpy()[0])
         for p_idx in range(3):
             input_base.grad = None
@@ -262,7 +221,6 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
             pred.backward(g, retain_graph=True)
             jac_acc[p_idx] += np.abs(input_base.grad.cpu().numpy()[0])
 
-        # ── Jacobian (ablated) ───────────────────────────────────────────────
         input_abl = norm_flux_t.unsqueeze(0).to(device).requires_grad_(True)
         pred_abl  = model(input_abl, zero_feat)
         ablated_preds.append(pred_abl.detach().cpu().numpy()[0])
@@ -272,66 +230,45 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
             pred_abl.backward(g, retain_graph=True)
             jac_acc_ablated[p_idx] += np.abs(input_abl.grad.cpu().numpy()[0])
 
-        # ── Integrated Gradients ─────────────────────────────────────────────
         star_ce = 0.0
         for p_idx in range(3):
             ig, ce = integrated_gradients_apogee(
                 model, norm_flux, feat_tensor,
-                param_idx=p_idx, device=device, n_steps=ig_steps
-            )
+                param_idx=p_idx, device=device, n_steps=ig_steps)
             ig_acc[p_idx] += ig
-            star_ce        += ce
+            star_ce += ce
         ig_completeness_errors.append(star_ce / 3.0)
-
         valid_count += 1
 
-    # ── Normalise ─────────────────────────────────────────────────────────────
     mean_jac         = jac_acc         / max(valid_count, 1)
     mean_jac_ablated = jac_acc_ablated / max(valid_count, 1)
     mean_ig          = ig_acc          / max(valid_count, 1)
-
     mean_ce = float(np.mean(ig_completeness_errors))
     print(f"\n   [IG] Mean completeness error : {mean_ce:.6f}  "
-          f"({'good' if mean_ce < 0.01 else 'acceptable' if mean_ce < 0.05 else 'high — increase ig_steps'})")
+          f"({'good' if mean_ce < 0.01 else 'acceptable' if mean_ce < 0.05 else 'high'})")
 
-    # ── Ablation shift ────────────────────────────────────────────────────────
-    physical_mad = (np.mean(np.abs(
-        np.array(baseline_preds) - np.array(ablated_preds)), axis=0)) * LABEL_STD
+    physical_mad = np.mean(np.abs(
+        np.array(baseline_preds) - np.array(ablated_preds)), axis=0) * LABEL_STD
 
-    # ── Line scores ───────────────────────────────────────────────────────────
     line_scores_jac, line_scores_ig = {}, {}
     for name, (lo, hi, arm_idx) in absorption_lines.items():
         wave = wave_grid[arm_idx]
         mask = (wave >= lo) & (wave <= hi)
-        line_scores_jac[name] = (
-            float(np.mean(mean_jac[0, arm_idx, mask])),
-            float(np.mean(mean_jac[1, arm_idx, mask])),
-        )
-        line_scores_ig[name] = (
-            float(np.mean(np.abs(mean_ig[0, arm_idx, mask]))),
-            float(np.mean(np.abs(mean_ig[1, arm_idx, mask]))),
-        )
+        line_scores_jac[name] = (float(np.mean(mean_jac[0, arm_idx, mask])),
+                                  float(np.mean(mean_jac[1, arm_idx, mask])))
+        line_scores_ig[name]  = (float(np.mean(np.abs(mean_ig[0, arm_idx, mask]))),
+                                  float(np.mean(np.abs(mean_ig[1, arm_idx, mask]))))
 
-    # ── Proof ratios ──────────────────────────────────────────────────────────
     wave_green = wave_grid[1]
     br14_mask  = (wave_green >= 15850) & (wave_green <= 15920)
     cont_mask  = ~br14_mask
+    proof_r_jac = line_scores_jac["Br-14 (Green)"][0] / (float(np.mean(mean_jac[0, 1, cont_mask])) + 1e-8)
+    proof_r_abl = float(np.mean(mean_jac_ablated[0, 1, br14_mask])) / (float(np.mean(mean_jac_ablated[0, 1, cont_mask])) + 1e-8)
+    proof_r_ig  = line_scores_ig["Br-14 (Green)"][0] / (float(np.mean(np.abs(mean_ig[0, 1, cont_mask]))) + 1e-8)
 
-    bg_jac      = float(np.mean(mean_jac[0, 1, cont_mask]))
-    proof_r_jac = line_scores_jac["Br-14 (Green)"][0] / (bg_jac + 1e-8)
-
-    bg_abl      = float(np.mean(mean_jac_ablated[0, 1, cont_mask]))
-    br14_abl    = float(np.mean(mean_jac_ablated[0, 1, br14_mask]))
-    proof_r_abl = br14_abl / (bg_abl + 1e-8)
-
-    bg_ig       = float(np.mean(np.abs(mean_ig[0, 1, cont_mask])))
-    proof_r_ig  = line_scores_ig["Br-14 (Green)"][0] / (bg_ig + 1e-8)
-
-    # ── Weight attribution ────────────────────────────────────────────────────
     weight_ratio, nominal_ratio = calculate_eval_model_weight_ratio(model)
     per_line = calculate_per_line_weight_attribution(model)
 
-    # ── Terminal summary ──────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print("  Jacobian Line Sensitivity")
     print("=" * 70)
@@ -339,7 +276,6 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
         print(f"  {name:<35} T_eff={t:.5f}  log_g={g:.5f}")
     print(f"\n  Proof Ratio (Jacobian, normal)  : {proof_r_jac:.4f}")
     print(f"  Proof Ratio (Jacobian, ablated) : {proof_r_abl:.4f}")
-
     print("\n" + "=" * 70)
     print("  Integrated Gradients Line Attribution")
     print("=" * 70)
@@ -347,7 +283,6 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
         print(f"  {name:<35} T_eff={t:.5f}  log_g={g:.5f}")
     print(f"\n  Proof Ratio (IG)                : {proof_r_ig:.4f}")
     print(f"  Mean completeness error (IG)    : {mean_ce:.6f}")
-
     print(f"\n  30D branch weight (learned)     : {weight_ratio:.2f}%")
     print(f"  30D branch dim   (nominal)      : {DENSE_BRANCH_DIM}/{FUSION_DIM} = {nominal_ratio:.2f}%")
     print(f"  Learned / Nominal               : x{weight_ratio/nominal_ratio:.2f}")
@@ -355,15 +290,17 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
     print(f"  Ablation shift  log g           : {physical_mad[1]:.4f} dex")
     print(f"  Ablation shift  [Fe/H]          : {physical_mad[2]:.4f} dex")
 
-    # ── Save report ───────────────────────────────────────────────────────────
+    # ── Save report — filename includes weight tag ────────────────────────────
+    tag        = _report_tag(weights_path)
     report_dir = os.path.join(base_dir, "report", "apogee")
     os.makedirs(report_dir, exist_ok=True)
-    out_path   = os.path.join(report_dir, "xai_physics_report.txt")
+    out_path   = os.path.join(report_dir, f"xai_physics_report{tag}.txt")
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
         f.write("  APOGEE Stellar HybridNet — XAI Physics Report\n")
         f.write("=" * 70 + "\n\n")
+        f.write(f"  Weights file             : {os.path.basename(weights_path)}\n")
         f.write(f"  Analyzed spectra         : {valid_count}\n")
         if n_train is not None:
             f.write(f"  Training set size        : {n_train} stars\n")
@@ -396,14 +333,11 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
             f.write(f"     |IG| log g : {g:.6f}\n\n")
         f.write(f"   Proof Ratio (IG)         : {proof_r_ig:.4f}\n")
         f.write(f"   Mean completeness error  : {mean_ce:.6f}\n\n")
-
-        f.write("   Comparison — Jacobian vs. Integrated Gradients:\n")
         f.write(f"   {'Line':<35} {'Jac T_eff':>12} {'IG T_eff':>12}\n")
         f.write(f"   {'-'*60}\n")
         for name in line_scores_jac:
-            jt = line_scores_jac[name][0]
-            it = line_scores_ig[name][0]
-            f.write(f"   {name:<35} {jt:>12.6f} {it:>12.6f}\n")
+            f.write(f"   {name:<35} {line_scores_jac[name][0]:>12.6f} "
+                    f"{line_scores_ig[name][0]:>12.6f}\n")
         f.write("\n")
 
         f.write("=" * 70 + "\n")
@@ -420,7 +354,7 @@ def run_xai_line_profile_analysis(num_samples=100, ig_steps=50, weights_path=Non
         if weight_ratio > nominal_ratio:
             f.write(f"\n   The Dense branch occupies {weight_ratio:.2f}% of post-fusion\n")
             f.write(f"   L1 weight despite contributing only {nominal_ratio:.2f}% of\n")
-            f.write(f"   dimensions — {weight_ratio/nominal_ratio:.2f}x upweighted by training.\n\n")
+            f.write(f"   dimensions — {weight_ratio/nominal_ratio:.2f}x upweighted.\n\n")
         else:
             f.write(f"\n   {weight_ratio:.2f}% learned vs {nominal_ratio:.2f}% nominal.\n\n")
 
