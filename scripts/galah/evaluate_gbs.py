@@ -488,12 +488,13 @@ def run_evaluation(args):
     mae, rmse, r2, rel = _metrics(labels, preds)
 
     # -- Report
-    print(f"\n{'=' * 70}")
-    print("  GBS v3 Evaluation Report — GALAH HybridNet")
-    print(f"  Generated      : {datetime.now():%Y-%m-%d  %H:%M:%S}")
-    print(f"  Weights        : {args.weights}")
-    print(f"  Stars evaluated: {len(records)}   (skipped: {skipped})")
-    print(f"{'=' * 70}")
+    report_lines = []
+    report_lines.append(f"\n{'=' * 70}")
+    report_lines.append("  GBS v3 Evaluation Report — GALAH HybridNet")
+    report_lines.append(f"  Generated      : {datetime.now():%Y-%m-%d  %H:%M:%S}")
+    report_lines.append(f"  Weights        : {args.weights}")
+    report_lines.append(f"  Stars evaluated: {len(records)}   (skipped: {skipped})")
+    report_lines.append(f"{'=' * 70}")
 
     for i, (name, unit) in enumerate(zip(PARAM_NAMES, PARAM_UNITS)):
         if i == 2:
@@ -505,25 +506,26 @@ def run_evaluation(args):
         else:
             n, mae_i, rmse_i, r2_i = len(records), float(mae[i]), float(rmse[i]), float(r2[i])
 
-        print(f"\n   {name}  (n={n}):")
-        print(f"     MAE            : {mae_i:.4f} {unit}")
-        print(f"     RMSE           : {rmse_i:.4f} {unit}")
-        print(f"     Relative Error : {float(rel[i]):.2f}%")
-        print(f"     R2 Score       : {r2_i:.4f}")
+        report_lines.append(f"\n   {name}  (n={n}):")
+        report_lines.append(f"     MAE            : {mae_i:.4f} {unit}")
+        report_lines.append(f"     RMSE           : {rmse_i:.4f} {unit}")
+        report_lines.append(f"     Relative Error : {float(rel[i]):.2f}%")
+        report_lines.append(f"     R2 Score       : {r2_i:.4f}")
 
-    print(f"\n   Note: Teff and logg from GBS are FUNDAMENTAL (spectroscopy-independent).")
-    print(f"         [Fe/H] is spectroscopic (from high-res optical spectra).")
+    report_lines.append(f"\n   Note: Teff and logg from GBS are FUNDAMENTAL (spectroscopy-independent).")
+    report_lines.append(f"         [Fe/H] is spectroscopic (from high-res optical spectra).")
+    report_lines.append(f"\n{'=' * 70}\n")
 
-    print(f"\n{'=' * 70}\n")
+    report_text = "\n".join(report_lines)
+    print(report_text)
 
-    # -- Save CSV
+    # -- Save TXT report
     os.makedirs(args.outdir, exist_ok=True)
-    csv_path = os.path.join(args.outdir, "gbs_galah_eval.csv")
-    with open(csv_path, "w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=records[0].keys())
-        writer.writeheader()
-        writer.writerows(records)
-    print(f"  Results saved → {csv_path}")
+    
+    txt_path = os.path.join(args.outdir, "gbs_galah_eval_report.txt")
+    with open(txt_path, "w") as fh:
+        fh.write(report_text)
+    print(f"  Report saved  → {txt_path}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
