@@ -232,7 +232,8 @@ def load_gbs_spectrum_as_galah(fits_path: str) -> np.ndarray | None:
             cdelt = hdr.get("CDELT1", hdr.get("CD1_1"))
             if crval is None or cdelt is None:
                 return None
-            wave_obs = crval + cdelt * np.arange(len(flux))
+            # GBS wavelength is in nanometers. Convert to Angstroms.
+            wave_obs = (crval + cdelt * np.arange(len(flux))) * 10.0
     except Exception:
         return None
 
