@@ -52,7 +52,7 @@ def _detect_batch_size():
     return 64  # CPU fallback
 
 BATCH_SIZE    = _detect_batch_size()
-EPOCHS        = 150
+EPOCHS        = 130
 LEARNING_RATE = 0.0002
 
 # GALAH Specific Constants

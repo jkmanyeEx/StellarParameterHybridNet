@@ -1,0 +1,40 @@
+=================================================================
+  GALAH DR4 x APOGEE DR17 Cross-match Report
+=================================================================
+  Generated : 2026-06-04  14:21:54
+
+▶ [SECTION 1] Trained Dataset Sizes
+   GALAH  trained stars : 42,328
+   APOGEE trained stars : 49,997
+
+▶ [SECTION 2] Catalog Column Detection
+   GALAH  Gaia column   : 'source_id'
+   GALAH  2MASS column  : 'tmass_id'
+   APOGEE Gaia column   : 'None'
+   APOGEE 2MASS column  : 'apogee_id' (built-in)
+
+   GALAH  stars w/ Gaia   : 41,386  / 42,328
+   GALAH  stars w/ 2MASS  : 41,386  / 42,328
+   APOGEE stars w/ Gaia   : 0 / 49,997
+   APOGEE stars w/ 2MASS  : 34,605 / 49,997
+
+▶ [SECTION 3] Cross-match Result
+   Matched via Gaia source_id : 0
+   Matched via 2MASS ID       : 956
+   Total                      : 956
+
+   Full match list : /Users/jkmanye/Desktop/training/StellarParameterHybridNet/data/crossmatch_galah_apogee.csv
+
+▶ [SECTION 4] Test Set Breakdown
+   GALAH  sealed test size  : 4,139
+   APOGEE sealed test size  : 1,500
+
+   In BOTH test sets        : 4  <- safe for cross-validation
+   In GALAH test set only   : 98
+   In APOGEE test set only  : 31
+   In neither (train/val)   : 823
+
+   CV set saved (both-test) : /Users/jkmanye/Desktop/training/StellarParameterHybridNet/data/crossmatch_cv_set.csv
+=================================================================
+  END OF REPORT
+=================================================================
