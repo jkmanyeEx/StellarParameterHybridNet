@@ -16,14 +16,8 @@ Usage:
 
 Prerequisites:
     1. scripts/check_crossmatch.py must have been run
-       → produces data/crossmatch_cv_set.csv
+       -> produces data/crossmatch_cv_set.csv
     2. Both GALAH and APOGEE training pipelines must be complete
-       → weights/galah/stellar_hybrid_model.pth
-       → weights/apogee/stellar_hybrid_model.pth
-       → data/galah/processed/  (X_flux_clean.npy, X_features_physical.npy,
-                                  Y_labels.npy, star_ids.npy, label_stats.npy,
-                                  feature_stats.npy, standard_wave.npy)
-       → data/apogee/processed/ (same set)
 """
 
 import os
@@ -35,18 +29,14 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-# ── Project root ──────────────────────────────────────────────────────────────
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, BASE_DIR)
 
 from src.models.galah.hybrid_net  import StellarParameterHybridNet as GalahNet
 from src.models.apogee.hybrid_net import StellarParameterHybridNet as ApogeeNet
-from src.data.galah.extract_features  import extract_45d_features_single_star
-from src.data.apogee.extract_features import extract_30d_features_single_star
 from src.utils.galah.config  import DEVICE as GALAH_DEVICE
 from src.utils.apogee.config import DEVICE as APOGEE_DEVICE
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
 CV_SET_CSV   = os.path.join(BASE_DIR, "data", "crossmatch_cv_set.csv")
 
 GALAH_PROC   = os.path.join(BASE_DIR, "data", "galah",  "processed")
@@ -67,7 +57,6 @@ UNITS        = ["K",      "dex",    "dex"]
 # ─────────────────────────────────────────────────────────────────────────────
 
 def compute_metrics(y_true, y_pred):
-    """Returns mae, rmse, r2, rel_err arrays of shape (3,)."""
     mae  = np.mean(np.abs(y_true - y_pred), axis=0)
     rmse = np.sqrt(np.mean((y_true - y_pred) ** 2, axis=0))
 
@@ -76,15 +65,12 @@ def compute_metrics(y_true, y_pred):
     r2     = 1.0 - ss_res / (ss_tot + 1e-8)
 
     rel = np.zeros(3)
-    # T_eff
     rel[0] = np.mean(np.abs(y_true[:, 0] - y_pred[:, 0])
                      / (np.abs(y_true[:, 0]) + 1e-8)) * 100
-    # log g — only where |true| > 0.1
     mask_g = np.abs(y_true[:, 1]) > 0.1
     if mask_g.any():
         rel[1] = np.mean(np.abs(y_true[mask_g, 1] - y_pred[mask_g, 1])
                          / np.abs(y_true[mask_g, 1])) * 100
-    # [Fe/H] — only where |true| > 0.01
     mask_f = np.abs(y_true[:, 2]) > 0.01
     if mask_f.any():
         rel[2] = np.mean(np.abs(y_true[mask_f, 2] - y_pred[mask_f, 2])
@@ -94,11 +80,6 @@ def compute_metrics(y_true, y_pred):
 
 
 def compute_agreement(preds_a, preds_b):
-    """
-    Inter-model agreement between two prediction arrays (N, 3).
-    Returns mae, rmse arrays of shape (3,) — treating one model's
-    predictions as 'truth' for the other.
-    """
     diff = preds_a - preds_b
     mae  = np.mean(np.abs(diff), axis=0)
     rmse = np.sqrt(np.mean(diff ** 2, axis=0))
@@ -124,23 +105,10 @@ def _load_model(net_class, weights_path, device):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Per-survey data loader  (returns index lookup by star_id)
+# Survey data loader
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_survey_data(proc_dir):
-    """
-    Returns a dict with everything needed to run inference for one survey:
-        flux        : np.ndarray  (N, arms, pixels)
-        features    : np.ndarray  (N, D)
-        labels      : np.ndarray  (N, 3)  — raw (un-normalised)
-        star_ids    : np.ndarray  (N,)
-        id_to_idx   : dict  star_id (str) -> row index
-        label_mean  : np.ndarray (3,)
-        label_std   : np.ndarray (3,)
-        feat_mean   : np.ndarray (D,)
-        feat_std    : np.ndarray (D,)
-        wave        : np.ndarray  — standard_wave for this survey
-    """
     def _req(fname):
         p = os.path.join(proc_dir, fname)
         if not os.path.exists(p):
@@ -150,7 +118,7 @@ def _load_survey_data(proc_dir):
             )
         return p
 
-    flux     = np.load(_req("X_flux_clean.npy"),       mmap_mode="r")
+    flux     = np.load(_req("X_flux_clean.npy"),        mmap_mode="r")
     features = np.load(_req("X_features_physical.npy"), mmap_mode="r")
     labels   = np.load(_req("Y_labels.npy"))
     star_ids = np.load(_req("star_ids.npy"), allow_pickle=True)
@@ -162,16 +130,16 @@ def _load_survey_data(proc_dir):
     id_to_idx = {str(sid).strip(): i for i, sid in enumerate(star_ids)}
 
     return dict(
-        flux       = flux,
-        features   = features,
-        labels     = labels,
-        star_ids   = star_ids,
-        id_to_idx  = id_to_idx,
-        label_mean = ls[0].astype(np.float32),
-        label_std  = ls[1].astype(np.float32),
-        feat_mean  = fs[0].astype(np.float32),
-        feat_std   = fs[1].astype(np.float32),
-        wave       = wave,
+        flux        = flux,
+        features    = features,
+        labels      = labels,
+        star_ids    = star_ids,
+        id_to_idx   = id_to_idx,
+        label_mean  = ls[0].astype(np.float32),
+        label_std   = ls[1].astype(np.float32),
+        feat_mean   = fs[0].astype(np.float32),
+        feat_std    = fs[1].astype(np.float32),
+        wave        = wave,
     )
 
 
@@ -181,18 +149,9 @@ def _load_survey_data(proc_dir):
 
 def _predict_one(model, raw_flux, raw_feat, feat_mean, feat_std,
                  label_mean, label_std, device):
-    """
-    Runs one forward pass.
-    raw_flux : (arms, pixels) — un-normalised
-    raw_feat : (D,)           — un-normalised
-    Returns real-space prediction np.ndarray (3,)
-    """
-    # Z-score flux per arm
-    f_mean = np.mean(raw_flux, axis=1, keepdims=True)
-    f_std  = np.std(raw_flux,  axis=1, keepdims=True) + 1e-8
+    f_mean    = np.mean(raw_flux, axis=1, keepdims=True)
+    f_std     = np.std(raw_flux,  axis=1, keepdims=True) + 1e-8
     norm_flux = np.clip((raw_flux - f_mean) / f_std, -3.0, 3.0)
-
-    # Normalise features
     norm_feat = (raw_feat - feat_mean) / (feat_std + 1e-8)
 
     t_flux = torch.from_numpy(norm_flux).float().unsqueeze(0).to(device)
@@ -215,7 +174,6 @@ def main():
     print("  GALAH x APOGEE  —  Cross-Survey Validation")
     print(sep)
 
-    # ── Check CV set ──────────────────────────────────────────────────────────
     if not os.path.exists(CV_SET_CSV):
         print(f"\n  ERROR: CV set not found at:\n    {CV_SET_CSV}")
         print("  Run  python scripts/check_crossmatch.py  first.")
@@ -232,6 +190,14 @@ def main():
 
     print(f"\n  CV set stars : {len(cv_rows):,}")
 
+    # Count match methods
+    by_method = {}
+    for r in cv_rows:
+        m = r.get("match_method", "unknown")
+        by_method[m] = by_method.get(m, 0) + 1
+    for method, count in by_method.items():
+        print(f"    Matched via {method:<8}: {count:,}")
+
     # ── Load survey data ──────────────────────────────────────────────────────
     print("\n  Loading GALAH processed data...")
     galah_data  = _load_survey_data(GALAH_PROC)
@@ -242,50 +208,45 @@ def main():
     print(f"  APOGEE flux shape : {apogee_data['flux'].shape}")
 
     # ── Load models ───────────────────────────────────────────────────────────
-    print("\n  Loading GALAH model ...")
+    print("\n  Loading GALAH  model...")
     galah_model  = _load_model(GalahNet,  GALAH_WEIGHTS,  GALAH_DEVICE)
-    print(f"  GALAH  model loaded  ({GALAH_WEIGHTS})")
-
-    print("  Loading APOGEE model ...")
+    print(f"  Loading APOGEE model...")
     apogee_model = _load_model(ApogeeNet, APOGEE_WEIGHTS, APOGEE_DEVICE)
-    print(f"  APOGEE model loaded  ({APOGEE_WEIGHTS})")
 
     # ── Run inference ─────────────────────────────────────────────────────────
     galah_preds,  galah_truths  = [], []
     apogee_preds, apogee_truths = [], []
     skipped = []
 
-    print(f"\n  Running inference on {len(cv_rows):,} cross-matched stars...")
+    print(f"\n  Running inference on {len(cv_rows):,} stars...")
 
     for row in tqdm(cv_rows, desc="Cross-validation", unit="star"):
         sobject_id = row["sobject_id"].strip()
         apogee_id  = row["apogee_id"].strip()
 
-        # ── GALAH ──
+        # ── GALAH lookup ──
         g_idx = galah_data["id_to_idx"].get(sobject_id)
         if g_idx is None:
             skipped.append((sobject_id, apogee_id, "sobject_id not in GALAH processed"))
             continue
-
         g_label = galah_data["labels"][g_idx]
         if np.any(g_label < -900):
-            skipped.append((sobject_id, apogee_id, "GALAH label sentinel (-999)"))
+            skipped.append((sobject_id, apogee_id, "GALAH label sentinel"))
             continue
 
-        # ── APOGEE ──
+        # ── APOGEE lookup ──
         a_idx = apogee_data["id_to_idx"].get(apogee_id)
         if a_idx is None:
             skipped.append((sobject_id, apogee_id, "apogee_id not in APOGEE processed"))
             continue
-
         a_label = apogee_data["labels"][a_idx]
         if np.any(a_label < -900):
-            skipped.append((sobject_id, apogee_id, "APOGEE label sentinel (-999)"))
+            skipped.append((sobject_id, apogee_id, "APOGEE label sentinel"))
             continue
 
-        # ── GALAH prediction ──
-        g_flux = np.array(galah_data["flux"][g_idx])      # (4, 4000)
-        g_feat = np.array(galah_data["features"][g_idx])  # (45,)
+        # ── Predict ──
+        g_flux = np.array(galah_data["flux"][g_idx])
+        g_feat = np.array(galah_data["features"][g_idx])
         g_pred = _predict_one(
             galah_model, g_flux, g_feat,
             galah_data["feat_mean"], galah_data["feat_std"],
@@ -293,9 +254,8 @@ def main():
             GALAH_DEVICE,
         )
 
-        # ── APOGEE prediction ──
-        a_flux = np.array(apogee_data["flux"][a_idx])      # (3, 2800)
-        a_feat = np.array(apogee_data["features"][a_idx])  # (30,)
+        a_flux = np.array(apogee_data["flux"][a_idx])
+        a_feat = np.array(apogee_data["features"][a_idx])
         a_pred = _predict_one(
             apogee_model, a_flux, a_feat,
             apogee_data["feat_mean"], apogee_data["feat_std"],
@@ -326,35 +286,35 @@ def main():
     a_mae,  a_rmse,  a_r2,  a_rel  = compute_metrics(apogee_truths, apogee_preds)
     ag_mae, ag_rmse = compute_agreement(galah_preds, apogee_preds)
 
-    # ── Console print ─────────────────────────────────────────────────────────
+    # ── Console ───────────────────────────────────────────────────────────────
     def _print_table(title, mae, rmse, r2, rel):
         print(f"\n  {title}")
         print(f"  {'-'*66}")
-        print(f"  {'Parameter':<14} {'MAE':>10} {'RMSE':>10} {'Rel.Err':>10} {'R²':>10}")
+        print(f"  {'Parameter':<16} {'MAE':>10} {'RMSE':>10} {'Rel.Err':>10} {'R²':>10}")
         print(f"  {'-'*66}")
         for i in range(3):
-            print(f"  {PARAMETERS[i]+' ('+UNITS[i]+')':14} "
+            print(f"  {PARAMETERS[i]+' ('+UNITS[i]+')':16} "
                   f"{mae[i]:>10.3f} {rmse[i]:>10.3f} "
                   f"{rel[i]:>9.2f}% {r2[i]:>10.4f}")
 
     print(f"\n{sep}")
     print("  CROSS-SURVEY VALIDATION RESULTS")
     print(sep)
-    _print_table("GALAH  model  vs  GALAH  labels  (in-survey, cross-matched stars)",
+    _print_table("GALAH  model vs GALAH  labels  (cross-matched stars)",
                  g_mae, g_rmse, g_r2, g_rel)
-    _print_table("APOGEE model  vs  APOGEE labels  (in-survey, cross-matched stars)",
+    _print_table("APOGEE model vs APOGEE labels  (cross-matched stars)",
                  a_mae, a_rmse, a_r2, a_rel)
 
-    print(f"\n  Inter-Model Agreement  (GALAH pred vs APOGEE pred, same physical star)")
+    print(f"\n  Inter-Model Agreement  (GALAH pred vs APOGEE pred, same star)")
     print(f"  {'-'*46}")
-    print(f"  {'Parameter':<14} {'MAE':>10} {'RMSE':>10}")
+    print(f"  {'Parameter':<16} {'MAE':>10} {'RMSE':>10}")
     print(f"  {'-'*46}")
     for i in range(3):
-        print(f"  {PARAMETERS[i]+' ('+UNITS[i]+')':14} "
+        print(f"  {PARAMETERS[i]+' ('+UNITS[i]+')':16} "
               f"{ag_mae[i]:>10.3f} {ag_rmse[i]:>10.3f}")
-    print(f"\n  (lower = two models agree more on the same star)")
+    print(f"\n  (lower = two models agree more on the same physical star)")
 
-    # ── Write report ──────────────────────────────────────────────────────────
+    # ── Report ────────────────────────────────────────────────────────────────
     os.makedirs(REPORT_DIR, exist_ok=True)
 
     def _fmt_section(title, mae, rmse, r2, rel):
@@ -370,12 +330,15 @@ def main():
             ]
         return lines
 
+    method_summary = "  ".join(f"{m}: {c}" for m, c in by_method.items())
+
     report = [
         sep,
         "  GALAH x APOGEE  Cross-Survey Validation Report",
         sep,
         f"  Generated      : {datetime.now().strftime('%Y-%m-%d  %H:%M:%S')}",
         f"  CV set size    : {len(cv_rows):,} stars",
+        f"  Match methods  : {method_summary}",
         f"  Valid evaluated: {n_valid:,} stars",
         f"  Skipped        : {len(skipped):,} stars",
         "",
@@ -386,6 +349,7 @@ def main():
         "▶ [SECTION 3] Inter-Model Agreement  (GALAH pred vs APOGEE pred)",
         "   Measures how consistently both models estimate parameters",
         "   for the SAME physical star observed in different wavelength regimes.",
+        "   Lower values = stronger cross-survey consistency.",
         "",
     ]
     for i in range(3):
